@@ -11,9 +11,10 @@ if ! command -v brew >/dev/null 2>&1; then
   exit 1
 fi
 
-PREFIX="$(brew --prefix)"
 PYTHON_PREFIX="$(brew --prefix python@3.14 2>/dev/null || true)"
 PYTHON_BASE="$PYTHON_PREFIX/bin/python3.14"
+NGDEVKIT_PREFIX="$(brew --prefix ngdevkit 2>/dev/null || true)"
+NGDK_TOOLSDIR="$NGDEVKIT_PREFIX/libexec/bin"
 
 if [ -z "$PYTHON_PREFIX" ] || [ ! -x "$PYTHON_BASE" ]; then
   echo "Python 3.14 Homebrew non trovato." >&2
@@ -21,8 +22,15 @@ if [ -z "$PYTHON_PREFIX" ] || [ ! -x "$PYTHON_BASE" ]; then
   exit 1
 fi
 
+if [ -z "$NGDEVKIT_PREFIX" ] || [ ! -f "$NGDK_TOOLSDIR/tiletool.py" ]; then
+  echo "Tool Python reali di ngdevkit non trovati in: $NGDK_TOOLSDIR" >&2
+  echo "Prova: brew reinstall ngdevkit" >&2
+  exit 1
+fi
+
 # Dedicated Python environment for ngdevkit tooling. This deliberately avoids
-# both Apple's /usr/bin/python3 and Homebrew's rolling 'python' formula.
+# Apple's /usr/bin/python3, Homebrew's rolling 'python', and Homebrew wrapper
+# scripts around ngdevkit's Python tools.
 if [ ! -x "$VENV/bin/python" ]; then
   rm -rf "$VENV"
   "$PYTHON_BASE" -m venv "$VENV"
@@ -40,14 +48,18 @@ git submodule update --init --recursive
 autoreconf -iv
 ./configure --with-python="$PYTHON_BIN"
 
-# Homebrew's ngdevkit Python tools are installed behind wrappers. Current
-# ngdevkit-examples configure can therefore still emit direct tool invocations
-# even when --with-python is supplied. Override them explicitly in config.mk.
-NGDK_BINDIR="$(pkg-config --variable=bindir ngdevkit)"
+# The binaries under $(pkg-config --variable=bindir ngdevkit) are Homebrew
+# shell wrappers. Never feed those wrappers to Python. Point config.mk directly
+# at the actual .py sources under the formula's libexec/bin directory.
 force_python_tool() {
   key="$1"
   script="$2"
-  value="$PYTHON_BIN $NGDK_BINDIR/$script"
+  real_script="$NGDK_TOOLSDIR/$script"
+  if [ ! -f "$real_script" ]; then
+    echo "ngdevkit tool mancante: $real_script" >&2
+    exit 1
+  fi
+  value="$PYTHON_BIN $real_script"
   if grep -q "^${key}=" config.mk; then
     sed -i.bak "s|^${key}=.*|${key}=${value}|" config.mk
   else
@@ -85,12 +97,12 @@ cp "$ROOT/mvs/main.c" "$TARGET/main.c"
 cp "$ROOT/src/game.c" "$ROOT/src/game.h" "$ROOT/src/levels.c" "$ROOT/src/levels.h" "$ROOT/src/characters.c" "$ROOT/src/characters.h" "$TARGET/src/"
 cp "$ROOT/mvs/Makefile" "$TARGET/Makefile"
 
-# Fail early if the exact interpreter/tool combination is still broken.
+# Fail early using the exact interpreter + real Python tool source that the
+# generated project will use.
 echo "Preflight ngdevkit tiletool with pinned Python:"
-"$PYTHON_BIN" "$NGDK_BINDIR/tiletool.py" --help >/dev/null
+"$PYTHON_BIN" "$NGDK_TOOLSDIR/tiletool.py" --help >/dev/null
 "$PYTHON_BIN" -c 'from PIL import Image; import sys; print("  Python", sys.version.split()[0], "+ Pillow OK")'
-
-echo "  TILETOOL=$PYTHON_BIN $NGDK_BINDIR/tiletool.py"
+echo "  TILETOOL=$PYTHON_BIN $NGDK_TOOLSDIR/tiletool.py"
 
 rm -rf "$TARGET/build"
 gmake -C "$TARGET" generate
