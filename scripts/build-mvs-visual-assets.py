@@ -139,7 +139,10 @@ def save_regional(
 ) -> tuple[list[list[int]], list[int]]:
     indexed, palettes, palmap = regional_indexed(img, region, transparent, slot_first)
     path.parent.mkdir(parents=True, exist_ok=True)
-    indexed.save(path, format="GIF", transparency=0 if transparent else None, optimize=False)
+    if transparent:
+        indexed.save(path, format="GIF", transparency=0, optimize=False)
+    else:
+        indexed.save(path, format="GIF", optimize=False)
     return palettes, palmap
 
 
