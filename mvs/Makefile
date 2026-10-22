@@ -19,20 +19,16 @@ include emu.mk
 ELF=$(BUILDDIR)/rom.elf
 CORE_OBJS=$(BUILDDIR)/src/game.o $(BUILDDIR)/src/levels.o $(BUILDDIR)/src/characters.o
 
-# ngdevkit's generic %.o rule does not itself create nested output folders.
 $(CORE_OBJS): | $(BUILDDIR)/src
 
 $(ELF): $(BUILDDIR)/main.o $(CORE_OBJS)
 $(PROM1): $(ELF)
 
-# FIX text remains the stock ngdevkit font for BIOS/title/HUD text.
 $(SROM1): $(BUILDDIR)/assets/base-srom-text-shadow.fix
 
 # C-ROM order MUST match scripts/build-mvs-visual-assets.py tile bases.
-# The stock BIOS/logo block occupies tiles 0..255; fidelity assets begin at 256.
 $(CROM1): $(BUILDDIR)/assets/base-crom-logo.c1
 $(CROM2): $(BUILDDIR)/assets/base-crom-logo.c2
-
 $(CROM1): $(BUILDDIR)/assets/gng_sky.c1
 $(CROM2): $(BUILDDIR)/assets/gng_sky.c2
 $(CROM1): $(BUILDDIR)/assets/gng_city.c1
@@ -51,8 +47,9 @@ $(CROM1): $(BUILDDIR)/assets/gng_zombie.c1
 $(CROM2): $(BUILDDIR)/assets/gng_zombie.c2
 $(CROM1): $(BUILDDIR)/assets/gng_ball.c1
 $(CROM2): $(BUILDDIR)/assets/gng_ball.c2
+$(CROM1): $(BUILDDIR)/assets/gng_fog.c1
+$(CROM2): $(BUILDDIR)/assets/gng_fog.c2
 
-# BIOS-compatible nullsound M-ROM. Music/SFX follow after visual parity.
 SOUND_DRIVER=$(BUILDDIR)/assets/base-sound-driver.ihx
 $(MROM1): $(SOUND_DRIVER)
 
