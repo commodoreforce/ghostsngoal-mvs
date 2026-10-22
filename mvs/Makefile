@@ -26,41 +26,25 @@ $(PROM1): $(ELF)
 
 $(SROM1): $(BUILDDIR)/assets/base-srom-text-shadow.fix
 
-# C-ROM order MUST match scripts/build-mvs-visual-assets.py tile bases.
+# Premium opening-zone C-ROM order. Must match build-mvs-visual-assets.py.
 $(CROM1): $(BUILDDIR)/assets/base-crom-logo.c1
 $(CROM2): $(BUILDDIR)/assets/base-crom-logo.c2
 $(CROM1): $(BUILDDIR)/assets/gng_sky.c1
 $(CROM2): $(BUILDDIR)/assets/gng_sky.c2
 $(CROM1): $(BUILDDIR)/assets/gng_city.c1
 $(CROM2): $(BUILDDIR)/assets/gng_city.c2
-$(CROM1): $(BUILDDIR)/assets/gng_retro.c1
-$(CROM2): $(BUILDDIR)/assets/gng_retro.c2
-$(CROM1): $(BUILDDIR)/assets/gng_blend25.c1
-$(CROM2): $(BUILDDIR)/assets/gng_blend25.c2
-$(CROM1): $(BUILDDIR)/assets/gng_blend50.c1
-$(CROM2): $(BUILDDIR)/assets/gng_blend50.c2
-$(CROM1): $(BUILDDIR)/assets/gng_blend75.c1
-$(CROM2): $(BUILDDIR)/assets/gng_blend75.c2
-$(CROM1): $(BUILDDIR)/assets/gng_ingresso.c1
-$(CROM2): $(BUILDDIR)/assets/gng_ingresso.c2
-$(CROM1): $(BUILDDIR)/assets/gng_inside.c1
-$(CROM2): $(BUILDDIR)/assets/gng_inside.c2
+$(CROM1): $(BUILDDIR)/assets/gng_atmos.c1
+$(CROM2): $(BUILDDIR)/assets/gng_atmos.c2
 $(CROM1): $(BUILDDIR)/assets/gng_ground.c1
 $(CROM2): $(BUILDDIR)/assets/gng_ground.c2
+$(CROM1): $(BUILDDIR)/assets/gng_fg_cemetery.c1
+$(CROM2): $(BUILDDIR)/assets/gng_fg_cemetery.c2
 $(CROM1): $(BUILDDIR)/assets/gng_shpendi.c1
 $(CROM2): $(BUILDDIR)/assets/gng_shpendi.c2
 $(CROM1): $(BUILDDIR)/assets/gng_zombie.c1
 $(CROM2): $(BUILDDIR)/assets/gng_zombie.c2
 $(CROM1): $(BUILDDIR)/assets/gng_ball.c1
 $(CROM2): $(BUILDDIR)/assets/gng_ball.c2
-$(CROM1): $(BUILDDIR)/assets/gng_fog.c1
-$(CROM2): $(BUILDDIR)/assets/gng_fog.c2
-$(CROM1): $(BUILDDIR)/assets/gng_pitch.c1
-$(CROM2): $(BUILDDIR)/assets/gng_pitch.c2
-$(CROM1): $(BUILDDIR)/assets/gng_fg_cemetery.c1
-$(CROM2): $(BUILDDIR)/assets/gng_fg_cemetery.c2
-$(CROM1): $(BUILDDIR)/assets/gng_fg_pitch.c1
-$(CROM2): $(BUILDDIR)/assets/gng_fg_pitch.c2
 
 SOUND_DRIVER=$(BUILDDIR)/assets/base-sound-driver.ihx
 $(MROM1): $(SOUND_DRIVER)
