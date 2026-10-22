@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Build the fidelity-first Ghosts'n Goals Neo Geo visual slice.
+"""Build a fidelity-first Ghosts'n Goals Neo Geo visual slice.
 
-Principles:
-- never rescale the painted Level 1 backgrounds;
-- keep painted layers separate (sky, city, stadium rear, stadium entrance, inside);
-- quantize local regions independently so the Neo Geo palette model is used properly;
-- preserve the original runtime player/enemy pixels 1:1 and pad only to 16x16 tiles.
+The web game is authored in a 256x224 logical viewport and displayed as 4:3.
+Neo Geo is 320x224 and also displayed as 4:3, so preserving the same perceived
+geometry requires a 5:4 horizontal projection when art is encoded in C-ROM.
+Y is never rescaled. Gameplay/camera stay in the original 256x224 logical space.
 """
 
 from __future__ import annotations
@@ -20,23 +19,30 @@ from typing import Iterable
 from PIL import Image
 
 TILE = 16
+LOGICAL_W = 256
 SCREEN_W = 320
 SCREEN_H = 224
-FRAME_BOX = 64
+X_NUM = 5
+X_DEN = 4
+FRAME_CELL_LOGICAL_W = 64
+FRAME_CELL_W = 80
+FRAME_CELL_H = 64
 CROM_BASE_TILE = 256
 
 BG_KEYS = [
-    ("SKY", "l1_sky.png", False),
-    ("CITY", "l1_cesena.png", True),
-    ("RETRO", "l1_stadio_retro.png", True),
-    ("INGRESSO", "l1_stadio_ingresso.png", True),
-    ("INSIDE", "l1_inside0.png", True),
+    ("SKY", "l1_sky.png", False, 1, (8, 3)),
+    ("CITY", "l1_cesena.png", True, 33, (8, 4)),
+    # Stage variants reuse palette slots 65..128. Only one is visible at once.
+    ("RETRO", "l1_stadio_retro.png", True, 65, (12, 4)),
+    ("INGRESSO", "l1_stadio_ingresso.png", True, 65, (12, 4)),
+    ("INSIDE", "l1_inside0.png", True, 65, (12, 4)),
 ]
 
-# 10 x 3 local regions per painted layer: up to 30 palettes/layer.
-# This gives a large visual improvement while keeping the whole scene safely
-# inside the Neo Geo's 256 palette slots together with actors/HUD.
-BG_GRID = (10, 3)
+PLAYER_PAL_FIRST = 129
+ZOMBIE_PAL_FIRST = 137
+BALL_PAL_FIRST = 145
+GROUND_PAL_FIRST = 146
+FOG_PAL_FIRST = 147
 
 
 @dataclass
@@ -48,6 +54,7 @@ class Asset:
     rows: int
     width: int
     height: int
+    logical_width: int
     pal_first: int
     palettes: list[list[int]]
     palmap: list[int]
@@ -57,8 +64,12 @@ def align16(n: int) -> int:
     return (n + 15) & ~15
 
 
+def project_x(n: int) -> int:
+    return (n * X_NUM + X_DEN - 1) // X_DEN
+
+
 def neogeo_color(rgb: tuple[int, int, int]) -> int:
-    """Match ngdevkit's RGB -> Neo Geo packed colour conversion."""
+    """Match ngdevkit paltool's RGB -> Neo Geo packed colour conversion."""
     r, g, b = [c >> 2 for c in rgb]
     darkbit = 1 if ((r & 1) + (g & 1) + (b & 1)) == 0 else 0
     r, g, b = r >> 1, g >> 1, b >> 1
@@ -67,15 +78,10 @@ def neogeo_color(rgb: tuple[int, int, int]) -> int:
     return (darkbit << 15) | (lsb << 12) | (r << 8) | (g << 4) | b
 
 
-def prepare_native_layer(path: Path) -> Image.Image:
-    """Keep original pixels. Only crop/pad vertically to the 224px viewport and pad to tiles."""
-    src = Image.open(path).convert("RGBA")
-    width = align16(src.width)
-    height = SCREEN_H
-    out = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    crop_h = min(src.height, SCREEN_H)
-    out.alpha_composite(src.crop((0, 0, src.width, crop_h)), (0, 0))
-    return out
+def padded_qpal(q: Image.Image) -> list[int]:
+    qpal = list(q.getpalette() or [])[:45]
+    qpal += [0] * (45 - len(qpal))
+    return qpal
 
 
 def neutral_gif_palette() -> list[int]:
@@ -87,10 +93,17 @@ def neutral_gif_palette() -> list[int]:
     return pal[:768]
 
 
-def padded_qpal(q: Image.Image) -> list[int]:
-    qpal = list(q.getpalette() or [])[:45]
-    qpal += [0] * (45 - len(qpal))
-    return qpal
+def project_layer(path: Path) -> tuple[Image.Image, int]:
+    """Project native web pixels horizontally 5:4; preserve vertical pixels exactly."""
+    src = Image.open(path).convert("RGBA")
+    logical_w = src.width
+    crop_h = min(src.height, SCREEN_H)
+    src = src.crop((0, 0, src.width, crop_h))
+    projected_w = project_x(src.width)
+    projected = src.resize((projected_w, crop_h), Image.Resampling.NEAREST)
+    out = Image.new("RGBA", (align16(projected_w), SCREEN_H), (0, 0, 0, 0))
+    out.alpha_composite(projected, (0, 0))
+    return out, logical_w
 
 
 def quantize_grid(
@@ -100,14 +113,11 @@ def quantize_grid(
     grid_cols: int,
     grid_rows: int,
 ) -> tuple[Image.Image, list[list[int]], list[int]]:
-    """Quantize aligned tile regions independently and emit an absolute palette slot per tile."""
     rgba = img.convert("RGBA")
     tiles_w = rgba.width // TILE
     tiles_h = rgba.height // TILE
-
     chunk_tw = max(1, math.ceil(tiles_w / grid_cols))
     chunk_th = max(1, math.ceil(tiles_h / grid_rows))
-
     out = Image.new("P", rgba.size, 0)
     out_px = out.load()
     palmap = [0] * (tiles_w * tiles_h)
@@ -119,22 +129,16 @@ def quantize_grid(
             ty1 = min(tiles_h, ty0 + chunk_th)
             x0, y0 = tx0 * TILE, ty0 * TILE
             x1, y1 = tx1 * TILE, ty1 * TILE
-
             crop = rgba.crop((x0, y0, x1, y1))
             alpha = crop.getchannel("A")
             rgb = Image.new("RGB", crop.size, (0, 0, 0))
             rgb.paste(crop.convert("RGB"), mask=alpha)
-
-            q = rgb.quantize(
-                colors=15,
-                method=Image.Quantize.MEDIANCUT,
-                dither=Image.Dither.NONE,
-            )
+            q = rgb.quantize(colors=15, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
             qpal = padded_qpal(q)
-            qpx = q.load()
-            apx = alpha.load()
-
+            qpx, apx = q.load(), alpha.load()
             slot = slot_first + len(palettes)
+            if slot > 255:
+                raise ValueError(f"palette slot overflow for {slot_first=}: {slot}")
             hw = [0x8000]
             for i in range(15):
                 off = i * 3
@@ -147,7 +151,6 @@ def quantize_grid(
                         out_px[x0 + x, y0 + y] = 0
                     else:
                         out_px[x0 + x, y0 + y] = int(qpx[x, y]) + 1
-
             for ty in range(ty0, ty1):
                 for tx in range(tx0, tx1):
                     palmap[ty * tiles_w + tx] = slot
@@ -159,9 +162,7 @@ def quantize_grid(
 
 
 def quantize_single_palette(
-    img: Image.Image,
-    transparent: bool,
-    slot: int,
+    img: Image.Image, transparent: bool, slot: int
 ) -> tuple[Image.Image, list[list[int]], list[int]]:
     rgba = img.convert("RGBA")
     alpha = rgba.getchannel("A")
@@ -169,7 +170,6 @@ def quantize_single_palette(
     rgb.paste(rgba.convert("RGB"), mask=alpha)
     q = rgb.quantize(colors=15, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
     qpal = padded_qpal(q)
-
     out = Image.new("P", rgba.size, 0)
     opx, qpx, apx = out.load(), q.load(), alpha.load()
     for y in range(rgba.height):
@@ -178,16 +178,13 @@ def quantize_single_palette(
                 opx[x, y] = 0
             else:
                 opx[x, y] = int(qpx[x, y]) + 1
-
     out.putpalette(neutral_gif_palette())
     if transparent:
         out.info["transparency"] = 0
-
     hw = [0x8000]
     for i in range(15):
         off = i * 3
         hw.append(neogeo_color((qpal[off], qpal[off + 1], qpal[off + 2])))
-
     cols, rows = rgba.width // TILE, rgba.height // TILE
     return out, [hw], [slot] * (cols * rows)
 
@@ -200,243 +197,155 @@ def save_indexed(img: Image.Image, path: Path, transparent: bool) -> None:
         img.save(path, format="GIF", optimize=False)
 
 
-def sheet_from_frames(sheet: Image.Image, fw: int, fh: int, frames: int) -> Image.Image:
-    """Copy runtime frames pixel-for-pixel into 64x64 cells. No scaling."""
-    if fw > FRAME_BOX or fh > FRAME_BOX:
-        raise ValueError(f"frame {fw}x{fh} exceeds {FRAME_BOX}x{FRAME_BOX}")
-    out = Image.new("RGBA", (FRAME_BOX * frames, FRAME_BOX), (0, 0, 0, 0))
+def project_sheet_frames(sheet: Image.Image, fw: int, fh: int, frames: int) -> Image.Image:
+    """Project each frame independently, avoiding bleed between animation cells."""
+    projected_fw = project_x(fw)
+    if projected_fw > FRAME_CELL_W or fh > FRAME_CELL_H:
+        raise ValueError(f"projected frame {projected_fw}x{fh} exceeds {FRAME_CELL_W}x{FRAME_CELL_H}")
     src = sheet.convert("RGBA")
+    out = Image.new("RGBA", (FRAME_CELL_W * frames, FRAME_CELL_H), (0, 0, 0, 0))
     for i in range(frames):
         frame = src.crop((i * fw, 0, (i + 1) * fw, fh))
-        x = i * FRAME_BOX + (FRAME_BOX - fw) // 2
-        y = FRAME_BOX - fh
+        frame = frame.resize((projected_fw, fh), Image.Resampling.NEAREST)
+        x = i * FRAME_CELL_W + (FRAME_CELL_W - projected_fw) // 2
+        y = FRAME_CELL_H - fh
         out.alpha_composite(frame, (x, y))
     return out
 
 
 def make_grass_tile() -> Image.Image:
-    """Exact Level 1 grass tile from the web buildTiles() routine."""
-    im = Image.new("RGBA", (16, 16), (42, 29, 20, 255))  # #2a1d14
-    px = im.load()
+    logical = Image.new("RGBA", (16, 16), (42, 29, 20, 255))
+    px = logical.load()
     def rect(x0: int, y0: int, w: int, h: int, rgb: tuple[int, int, int]) -> None:
         for yy in range(y0, min(16, y0 + h)):
             for xx in range(x0, min(16, x0 + w)):
                 px[xx, yy] = (*rgb, 255)
-    rect(0, 0, 16, 4, (47, 107, 42))
-    rect(0, 4, 16, 1, (29, 74, 28))
-    for x in (1, 5, 9, 13):
-        rect(x, 0, 1, 2, (74, 154, 58))
-    rect(3, 8, 2, 1, (58, 42, 30))
-    rect(10, 11, 3, 1, (58, 42, 30))
-    return im
+    rect(0, 0, 16, 4, (47, 107, 42)); rect(0, 4, 16, 1, (29, 74, 28))
+    for x in (1, 5, 9, 13): rect(x, 0, 1, 2, (74, 154, 58))
+    rect(3, 8, 2, 1, (58, 42, 30)); rect(10, 11, 3, 1, (58, 42, 30))
+    return logical.resize((20, 16), Image.Resampling.NEAREST).crop((0, 0, 16, 16))
 
 
 def make_ball() -> Image.Image:
+    # Web-style projectile ball: small, crisp, no ground-ball interpretation.
     im = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
     px = im.load()
-    for y in range(2, 14):
-        for x in range(2, 14):
-            dx, dy = x - 7.5, y - 7.5
-            if dx * dx + dy * dy <= 34:
+    for y in range(4, 12):
+        for x in range(3, 13):
+            dx = (x - 7.5) / 1.25
+            dy = y - 7.5
+            if dx * dx + dy * dy <= 14:
                 px[x, y] = (244, 244, 240, 255)
-    for x, y in [(7, 5), (8, 5), (6, 7), (9, 7), (7, 9), (8, 9)]:
+    for x, y in ((7, 6), (9, 7), (6, 9), (9, 10)):
         px[x, y] = (20, 20, 24, 255)
     return im
 
 
+def make_fog() -> Image.Image:
+    im = Image.new("RGBA", (320, 64), (0, 0, 0, 0))
+    px = im.load()
+    for y in range(64):
+        for x in range(320):
+            band = (x // 4 + y // 3) & 3
+            if band in (0, 1) and 5 < y < 60:
+                a = 220 if 18 < y < 48 else 150
+                px[x, y] = (190, 174, 220, a)
+    return im
+
+
 def c_palette_matrix(name: str, palettes: list[list[int]]) -> str:
-    rows = []
-    for pal in palettes:
-        rows.append("    { " + ", ".join(f"0x{v:04x}" for v in pal) + " }")
-    return (
-        f"static const unsigned short {name}[{len(palettes)}][16] = {{\n"
-        + ",\n".join(rows)
-        + "\n};\n"
-    )
+    rows = ["    { " + ", ".join(f"0x{v:04x}" for v in pal) + " }" for pal in palettes]
+    return f"static const unsigned short {name}[{len(palettes)}][16] = {{\n" + ",\n".join(rows) + "\n};\n"
 
 
 def c_u8_array(name: str, values: Iterable[int]) -> str:
     vals = list(values)
-    lines = []
-    for i in range(0, len(vals), 24):
-        lines.append("    " + ", ".join(str(v) for v in vals[i:i + 24]))
-    return (
-        f"static const unsigned char {name}[{len(vals)}] = {{\n"
-        + ",\n".join(lines)
-        + "\n};\n"
-    )
+    lines = ["    " + ", ".join(str(v) for v in vals[i:i + 24]) for i in range(0, len(vals), 24)]
+    return f"static const unsigned char {name}[{len(vals)}] = {{\n" + ",\n".join(lines) + "\n};\n"
 
 
 def macro_asset(a: Asset) -> str:
     p = f"GNG_{a.name}"
     return (
-        f"#define {p}_TILE {a.tile_base}\n"
-        f"#define {p}_COLS {a.cols}\n"
-        f"#define {p}_ROWS {a.rows}\n"
-        f"#define {p}_W {a.width}\n"
-        f"#define {p}_H {a.height}\n"
-        f"#define {p}_PAL_FIRST {a.pal_first}\n"
-        f"#define {p}_PAL_COUNT {len(a.palettes)}\n"
+        f"#define {p}_TILE {a.tile_base}\n#define {p}_COLS {a.cols}\n#define {p}_ROWS {a.rows}\n"
+        f"#define {p}_W {a.width}\n#define {p}_H {a.height}\n#define {p}_LOGICAL_W {a.logical_width}\n"
+        f"#define {p}_PAL_FIRST {a.pal_first}\n#define {p}_PAL_COUNT {len(a.palettes)}\n"
     )
 
 
-def emit_header(
-    path: Path,
-    assets: list[Asset],
-    player_frames: list[str],
-    zombie_frames: list[str],
-    total_palettes: list[list[int]],
-) -> None:
+def emit_header(path: Path, assets: list[Asset], player_frames: list[str], zombie_frames: list[str]) -> None:
     by_name = {a.name: a for a in assets}
-    max_bg_w = max(by_name[n].width for n in ("SKY", "CITY", "RETRO", "INGRESSO", "INSIDE"))
-    demo_world_w = max(960, min(4192, max_bg_w + 320))
-
+    max_logical_bg_w = max(by_name[n].logical_width for n in ("SKY", "CITY", "RETRO", "INGRESSO", "INSIDE"))
+    demo_world_w = max(960, min(4192, max_logical_bg_w + LOGICAL_W))
     text = "#ifndef GNG_GFX_ASSETS_H\n#define GNG_GFX_ASSETS_H\n\n"
-    text += "/* Fidelity-first assets generated from pinned runtime art. */\n"
-    text += f"#define GNG_SCREEN_W {SCREEN_W}\n#define GNG_SCREEN_H {SCREEN_H}\n"
-    text += f"#define GNG_DEMO_WORLD_W {demo_world_w}\n"
-    text += f"#define GNG_PALETTE_COUNT {len(total_palettes)}\n\n"
+    text += "/* Web-space 256x224 -> Neo Geo 320x224 projected assets. */\n"
+    text += f"#define GNG_LOGICAL_W {LOGICAL_W}\n#define GNG_SCREEN_W {SCREEN_W}\n#define GNG_SCREEN_H {SCREEN_H}\n"
+    text += f"#define GNG_X_NUM {X_NUM}\n#define GNG_X_DEN {X_DEN}\n#define GNG_DEMO_WORLD_W {demo_world_w}\n\n"
     for a in assets:
         text += macro_asset(a) + "\n"
-
-    text += f"#define GNG_PLAYER_FRAME_COUNT {len(player_frames)}\n"
-    for i, name in enumerate(player_frames):
-        text += f"#define GNG_PLAYER_FRAME_{name.upper()} {i}\n"
-    text += f"#define GNG_ZOMBIE_FRAME_COUNT {len(zombie_frames)}\n"
-    for i, name in enumerate(zombie_frames):
-        text += f"#define GNG_ZOMBIE_FRAME_{name.upper()} {i}\n"
-    text += "\n"
-
-    text += c_palette_matrix("GNG_PALETTES", total_palettes) + "\n"
-    for a in assets:
+        text += c_palette_matrix(f"GNG_{a.name}_PALETTES", a.palettes) + "\n"
         text += c_u8_array(f"GNG_{a.name}_PALMAP", a.palmap) + "\n"
+    text += f"#define GNG_PLAYER_FRAME_COUNT {len(player_frames)}\n"
+    for i, name in enumerate(player_frames): text += f"#define GNG_PLAYER_FRAME_{name.upper()} {i}\n"
+    text += f"#define GNG_ZOMBIE_FRAME_COUNT {len(zombie_frames)}\n"
+    for i, name in enumerate(zombie_frames): text += f"#define GNG_ZOMBIE_FRAME_{name.upper()} {i}\n"
+    text += f"#define GNG_ACTOR_COLS {FRAME_CELL_W // TILE}\n#define GNG_ACTOR_ROWS {FRAME_CELL_H // TILE}\n"
     text += "#endif\n"
     path.write_text(text, encoding="utf-8")
 
 
 def build(upstream: Path, target: Path) -> None:
     public = upstream / "game" / "public"
-    backgrounds = public / "backgrounds"
-    sprites = public / "sprites"
-    assets_dir = target / "assets"
-    src_dir = target / "src"
-    assets_dir.mkdir(parents=True, exist_ok=True)
-    src_dir.mkdir(parents=True, exist_ok=True)
-
+    backgrounds, sprites = public / "backgrounds", public / "sprites"
+    assets_dir, src_dir = target / "assets", target / "src"
+    assets_dir.mkdir(parents=True, exist_ok=True); src_dir.mkdir(parents=True, exist_ok=True)
     manifest = json.loads((sprites / "manifest.json").read_text(encoding="utf-8"))
     enemies = json.loads((sprites / "enemies.json").read_text(encoding="utf-8"))
-    sh = manifest["shpendi"]
-    zo = enemies["zombie"]
-
+    sh, zo = manifest["shpendi"], enemies["zombie"]
     tile_cursor = CROM_BASE_TILE
-    palette_cursor = 1
-    all_palettes: list[list[int]] = []
     built: list[Asset] = []
 
-    def add_asset(
-        name: str,
-        filename: str,
-        rgba: Image.Image,
-        transparent: bool,
-        grid: tuple[int, int] | None,
-    ) -> Asset:
-        nonlocal tile_cursor, palette_cursor
-
+    def add_asset(name: str, filename: str, rgba: Image.Image, logical_w: int, transparent: bool,
+                  pal_first: int, grid: tuple[int, int] | None) -> Asset:
+        nonlocal tile_cursor
         if rgba.width % TILE or rgba.height % TILE:
             raise ValueError(f"{name} is not tile aligned: {rgba.size}")
-
         if grid is None:
-            indexed, pals, palmap = quantize_single_palette(rgba, transparent, palette_cursor)
+            indexed, pals, palmap = quantize_single_palette(rgba, transparent, pal_first)
         else:
-            indexed, pals, palmap = quantize_grid(
-                rgba, transparent, palette_cursor, grid[0], grid[1]
-            )
-
+            indexed, pals, palmap = quantize_grid(rgba, transparent, pal_first, grid[0], grid[1])
         save_indexed(indexed, assets_dir / filename, transparent)
         cols, rows = rgba.width // TILE, rgba.height // TILE
-        a = Asset(
-            name=name,
-            filename=filename,
-            tile_base=tile_cursor,
-            cols=cols,
-            rows=rows,
-            width=rgba.width,
-            height=rgba.height,
-            pal_first=palette_cursor,
-            palettes=pals,
-            palmap=palmap,
-        )
-        built.append(a)
-        all_palettes.extend(pals)
-        tile_cursor += cols * rows
-        palette_cursor += len(pals)
+        a = Asset(name, filename, tile_cursor, cols, rows, rgba.width, rgba.height,
+                  logical_w, pal_first, pals, palmap)
+        built.append(a); tile_cursor += cols * rows
         return a
 
-    for key, fn, transparent in BG_KEYS:
+    for key, fn, transparent, pal_first, grid in BG_KEYS:
         path = backgrounds / fn
-        if not path.is_file():
-            raise SystemExit(f"Missing painted Level 1 layer: {path}")
-        add_asset(
-            key,
-            f"gng_{key.lower()}.gif",
-            prepare_native_layer(path),
-            transparent,
-            BG_GRID,
-        )
+        if not path.is_file(): raise SystemExit(f"Missing painted Level 1 layer: {path}")
+        projected, logical_w = project_layer(path)
+        add_asset(key, f"gng_{key.lower()}.gif", projected, logical_w, transparent, pal_first, grid)
 
-    player_path = sprites / "pl_shpendi_base.png"
-    zombie_path = sprites / f"{zo['sheet']}.png"
+    player = project_sheet_frames(Image.open(sprites / "pl_shpendi_base.png"), int(sh["frameWidth"]), int(sh["frameHeight"]), len(sh["frames"]))
+    zombie = project_sheet_frames(Image.open(sprites / f"{zo['sheet']}.png"), int(zo["frameWidth"]), int(zo["frameHeight"]), len(zo["frames"]))
+    add_asset("GROUND", "gng_ground.gif", make_grass_tile(), 16, False, GROUND_PAL_FIRST, None)
+    add_asset("PLAYER", "gng_shpendi.gif", player, FRAME_CELL_LOGICAL_W * len(sh["frames"]), True, PLAYER_PAL_FIRST, (18, 2))
+    add_asset("ZOMBIE", "gng_zombie.gif", zombie, FRAME_CELL_LOGICAL_W * len(zo["frames"]), True, ZOMBIE_PAL_FIRST, (10, 2))
+    add_asset("BALL", "gng_ball.gif", make_ball(), 13, True, BALL_PAL_FIRST, None)
+    add_asset("FOG", "gng_fog.gif", make_fog(), LOGICAL_W, True, FOG_PAL_FIRST, (5, 1))
 
-    player = sheet_from_frames(
-        Image.open(player_path),
-        int(sh["frameWidth"]),
-        int(sh["frameHeight"]),
-        len(sh["frames"]),
-    )
-    zombie = sheet_from_frames(
-        Image.open(zombie_path),
-        int(zo["frameWidth"]),
-        int(zo["frameHeight"]),
-        len(zo["frames"]),
-    )
-
-    add_asset("GROUND", "gng_ground.gif", make_grass_tile(), False, None)
-    add_asset("PLAYER", "gng_shpendi.gif", player, True, None)
-    add_asset("ZOMBIE", "gng_zombie.gif", zombie, True, None)
-    add_asset("BALL", "gng_ball.gif", make_ball(), True, None)
-
-    if palette_cursor > 256:
-        raise SystemExit(
-            f"Neo Geo palette budget exceeded: slots 0..{palette_cursor - 1} "
-            f"({palette_cursor} total). Reduce BG_GRID."
-        )
-
-    emit_header(
-        src_dir / "gfx_assets.h",
-        built,
-        list(sh["frames"]),
-        list(zo["frames"]),
-        all_palettes,
-    )
-
-    print("Generated FIDELITY-FIRST Neo Geo assets:")
+    emit_header(src_dir / "gfx_assets.h", built, list(sh["frames"]), list(zo["frames"]))
+    print("Generated WEB-GEOMETRY Neo Geo assets:")
     for a in built:
-        print(
-            f"  {a.name:8s} {a.width:4d}x{a.height:<3d} "
-            f"tiles={a.cols * a.rows:4d} palettes={len(a.palettes):2d} "
-            f"tilebase={a.tile_base}"
-        )
-    print(f"  palette slots used: {palette_cursor - 1} / 255")
-    print("  background scaling: NONE (native pixels preserved)")
+        print(f"  {a.name:8s} physical={a.width:4d}x{a.height:<3d} logicalW={a.logical_width:4d} palettes={len(a.palettes):2d} tilebase={a.tile_base}")
+    print("  geometry: 256x224 logical -> 320x224 C-ROM (X 5:4, Y 1:1)")
+    print("  gameplay coordinates remain in original web logical space")
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("upstream", type=Path)
-    ap.add_argument("target", type=Path)
-    args = ap.parse_args()
-    build(args.upstream.resolve(), args.target.resolve())
+    ap = argparse.ArgumentParser(); ap.add_argument("upstream", type=Path); ap.add_argument("target", type=Path)
+    args = ap.parse_args(); build(args.upstream.resolve(), args.target.resolve())
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
