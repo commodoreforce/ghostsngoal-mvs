@@ -50,7 +50,14 @@ def quantize_15(img: Image.Image, transparent: bool) -> tuple[Image.Image, list[
 
     # Keep one hardware color free for transparency.
     q = rgb.quantize(colors=15, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
-    qpal = q.getpalette()[: 15 * 3]
+
+    # Pillow may return only the entries actually used by a low-color image
+    # (the football is a good example), rather than a full 15-color table.
+    # Pad to exactly 15 RGB entries so both the GIF and Neo Geo hardware
+    # palette generation can always address indices 1..15 safely.
+    qpal = list(q.getpalette() or [])[: 15 * 3]
+    qpal += [0] * ((15 * 3) - len(qpal))
+
     src = q.load()
     a = alpha.load()
 
