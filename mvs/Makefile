@@ -35,6 +35,12 @@ $(CROM1): $(BUILDDIR)/assets/gng_city.c1
 $(CROM2): $(BUILDDIR)/assets/gng_city.c2
 $(CROM1): $(BUILDDIR)/assets/gng_retro.c1
 $(CROM2): $(BUILDDIR)/assets/gng_retro.c2
+$(CROM1): $(BUILDDIR)/assets/gng_blend25.c1
+$(CROM2): $(BUILDDIR)/assets/gng_blend25.c2
+$(CROM1): $(BUILDDIR)/assets/gng_blend50.c1
+$(CROM2): $(BUILDDIR)/assets/gng_blend50.c2
+$(CROM1): $(BUILDDIR)/assets/gng_blend75.c1
+$(CROM2): $(BUILDDIR)/assets/gng_blend75.c2
 $(CROM1): $(BUILDDIR)/assets/gng_ingresso.c1
 $(CROM2): $(BUILDDIR)/assets/gng_ingresso.c2
 $(CROM1): $(BUILDDIR)/assets/gng_inside.c1
@@ -49,6 +55,12 @@ $(CROM1): $(BUILDDIR)/assets/gng_ball.c1
 $(CROM2): $(BUILDDIR)/assets/gng_ball.c2
 $(CROM1): $(BUILDDIR)/assets/gng_fog.c1
 $(CROM2): $(BUILDDIR)/assets/gng_fog.c2
+$(CROM1): $(BUILDDIR)/assets/gng_pitch.c1
+$(CROM2): $(BUILDDIR)/assets/gng_pitch.c2
+$(CROM1): $(BUILDDIR)/assets/gng_fg_cemetery.c1
+$(CROM2): $(BUILDDIR)/assets/gng_fg_cemetery.c2
+$(CROM1): $(BUILDDIR)/assets/gng_fg_pitch.c1
+$(CROM2): $(BUILDDIR)/assets/gng_fg_pitch.c2
 
 SOUND_DRIVER=$(BUILDDIR)/assets/base-sound-driver.ihx
 $(MROM1): $(SOUND_DRIVER)
