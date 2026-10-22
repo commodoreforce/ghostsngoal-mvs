@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Build a fidelity-first Ghosts'n Goals Neo Geo visual slice.
+"""Build the Level 1 Neo Geo art from the web game's actual visual model.
 
 The web game is authored in a 256x224 logical viewport and displayed as 4:3.
-Neo Geo is 320x224 and also displayed as 4:3, so preserving the same perceived
-geometry requires a 5:4 horizontal projection when art is encoded in C-ROM.
-Y is never rescaled. Gameplay/camera stay in the original 256x224 logical space.
+Neo Geo is 320x224 and is also displayed as 4:3, therefore X is projected 5:4
+while Y remains 1:1. Gameplay/camera coordinates stay in the original web
+logical space.
+
+This generator deliberately keeps the Level 1 visual planes separate:
+painted sky/city/stadium variants, pitch, fog and near foreground silhouettes.
+That lets the MVS renderer reproduce the Phaser parallax instead of flattening
+all scenery into one degraded bitmap.
 """
 
 from __future__ import annotations
@@ -16,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 TILE = 16
 LOGICAL_W = 256
@@ -28,21 +33,21 @@ FRAME_CELL_LOGICAL_W = 64
 FRAME_CELL_W = 80
 FRAME_CELL_H = 64
 CROM_BASE_TILE = 256
+LEVEL1_WORLD_W = 262 * 16
 
-BG_KEYS = [
-    ("SKY", "l1_sky.png", False, 1, (8, 3)),
-    ("CITY", "l1_cesena.png", True, 33, (8, 4)),
-    # Stage variants reuse palette slots 65..128. Only one is visible at once.
-    ("RETRO", "l1_stadio_retro.png", True, 65, (12, 4)),
-    ("INGRESSO", "l1_stadio_ingresso.png", True, 65, (12, 4)),
-    ("INSIDE", "l1_inside0.png", True, 65, (12, 4)),
-]
-
-PLAYER_PAL_FIRST = 129
-ZOMBIE_PAL_FIRST = 130
-BALL_PAL_FIRST = 131
-GROUND_PAL_FIRST = 132
-FOG_PAL_FIRST = 133
+# More local palettes for painted scenery than the previous prototype.
+# Stadium variants deliberately reuse 97..160 because only one is visible.
+SKY_PAL_FIRST = 1
+CITY_PAL_FIRST = 49
+STAGE_PAL_FIRST = 97
+PLAYER_PAL_FIRST = 161
+ZOMBIE_PAL_FIRST = 162
+BALL_PAL_FIRST = 163
+GROUND_PAL_FIRST = 164
+FOG_PAL_FIRST = 165
+PITCH_PAL_FIRST = 173
+FG_CEMETERY_PAL_FIRST = 174
+FG_PITCH_PAL_FIRST = 175
 
 
 @dataclass
@@ -86,14 +91,13 @@ def padded_qpal(q: Image.Image) -> list[int]:
 def neutral_gif_palette() -> list[int]:
     pal: list[int] = []
     for i in range(256):
-        v = i if i < 16 else 0
-        c = int(round(v * 255 / 15)) if i < 16 else 0
+        c = int(round(i * 255 / 15)) if i < 16 else 0
         pal += [c, c, c]
     return pal[:768]
 
 
-def project_layer(path: Path) -> tuple[Image.Image, int]:
-    src = Image.open(path).convert("RGBA")
+def project_rgba(src: Image.Image) -> tuple[Image.Image, int]:
+    src = src.convert("RGBA")
     logical_w = src.width
     crop_h = min(src.height, SCREEN_H)
     src = src.crop((0, 0, src.width, crop_h))
@@ -104,8 +108,17 @@ def project_layer(path: Path) -> tuple[Image.Image, int]:
     return out, logical_w
 
 
-def quantize_grid(img: Image.Image, transparent: bool, slot_first: int,
-                  grid_cols: int, grid_rows: int) -> tuple[Image.Image, list[list[int]], list[int]]:
+def project_file(path: Path) -> tuple[Image.Image, int]:
+    return project_rgba(Image.open(path))
+
+
+def quantize_grid(
+    img: Image.Image,
+    transparent: bool,
+    slot_first: int,
+    grid_cols: int,
+    grid_rows: int,
+) -> tuple[Image.Image, list[list[int]], list[int]]:
     rgba = img.convert("RGBA")
     tiles_w = rgba.width // TILE
     tiles_h = rgba.height // TILE
@@ -131,12 +144,13 @@ def quantize_grid(img: Image.Image, transparent: bool, slot_first: int,
             qpx, apx = q.load(), alpha.load()
             slot = slot_first + len(palettes)
             if slot > 255:
-                raise ValueError(f"palette slot overflow for {slot_first=}: {slot}")
+                raise ValueError(f"palette slot overflow: {slot}")
             hw = [0x8000]
             for i in range(15):
                 off = i * 3
                 hw.append(neogeo_color((qpal[off], qpal[off + 1], qpal[off + 2])))
             palettes.append(hw)
+
             for y in range(crop.height):
                 for x in range(crop.width):
                     if transparent and apx[x, y] < 96:
@@ -148,11 +162,14 @@ def quantize_grid(img: Image.Image, transparent: bool, slot_first: int,
                     palmap[ty * tiles_w + tx] = slot
 
     out.putpalette(neutral_gif_palette())
-    if transparent: out.info["transparency"] = 0
+    if transparent:
+        out.info["transparency"] = 0
     return out, palettes, palmap
 
 
-def quantize_single_palette(img: Image.Image, transparent: bool, slot: int) -> tuple[Image.Image, list[list[int]], list[int]]:
+def quantize_single_palette(
+    img: Image.Image, transparent: bool, slot: int
+) -> tuple[Image.Image, list[list[int]], list[int]]:
     rgba = img.convert("RGBA")
     alpha = rgba.getchannel("A")
     rgb = Image.new("RGB", rgba.size, (0, 0, 0))
@@ -163,10 +180,13 @@ def quantize_single_palette(img: Image.Image, transparent: bool, slot: int) -> t
     opx, qpx, apx = out.load(), q.load(), alpha.load()
     for y in range(rgba.height):
         for x in range(rgba.width):
-            if transparent and apx[x, y] < 96: opx[x, y] = 0
-            else: opx[x, y] = int(qpx[x, y]) + 1
+            if transparent and apx[x, y] < 96:
+                opx[x, y] = 0
+            else:
+                opx[x, y] = int(qpx[x, y]) + 1
     out.putpalette(neutral_gif_palette())
-    if transparent: out.info["transparency"] = 0
+    if transparent:
+        out.info["transparency"] = 0
     hw = [0x8000]
     for i in range(15):
         off = i * 3
@@ -177,8 +197,10 @@ def quantize_single_palette(img: Image.Image, transparent: bool, slot: int) -> t
 
 def save_indexed(img: Image.Image, path: Path, transparent: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    if transparent: img.save(path, format="GIF", transparency=0, optimize=False)
-    else: img.save(path, format="GIF", optimize=False)
+    if transparent:
+        img.save(path, format="GIF", transparency=0, optimize=False)
+    else:
+        img.save(path, format="GIF", optimize=False)
 
 
 def project_sheet_frames(sheet: Image.Image, fw: int, fh: int, frames: int) -> Image.Image:
@@ -196,9 +218,21 @@ def project_sheet_frames(sheet: Image.Image, fw: int, fh: int, frames: int) -> I
     return out
 
 
+def blend_sources(a: Image.Image, b: Image.Image, t: float) -> Image.Image:
+    a = a.convert("RGBA")
+    b = b.convert("RGBA")
+    w = max(a.width, b.width)
+    h = max(a.height, b.height)
+    aa = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    bb = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    aa.alpha_composite(a, (0, 0))
+    bb.alpha_composite(b, (0, 0))
+    return Image.blend(aa, bb, t)
+
+
 def make_grass_tile() -> Image.Image:
-    logical = Image.new("RGBA", (16, 16), (42, 29, 20, 255))
-    px = logical.load()
+    im = Image.new("RGBA", (16, 16), (42, 29, 20, 255))
+    px = im.load()
     def rect(x0: int, y0: int, w: int, h: int, rgb: tuple[int, int, int]) -> None:
         for yy in range(y0, min(16, y0 + h)):
             for xx in range(x0, min(16, x0 + w)):
@@ -206,7 +240,7 @@ def make_grass_tile() -> Image.Image:
     rect(0, 0, 16, 4, (47, 107, 42)); rect(0, 4, 16, 1, (29, 74, 28))
     for x in (1, 5, 9, 13): rect(x, 0, 1, 2, (74, 154, 58))
     rect(3, 8, 2, 1, (58, 42, 30)); rect(10, 11, 3, 1, (58, 42, 30))
-    return logical
+    return im
 
 
 def make_ball() -> Image.Image:
@@ -214,19 +248,80 @@ def make_ball() -> Image.Image:
     for y in range(4, 12):
         for x in range(3, 13):
             dx = (x - 7.5) / 1.25; dy = y - 7.5
-            if dx * dx + dy * dy <= 14: px[x, y] = (244, 244, 240, 255)
-    for x, y in ((7, 6), (9, 7), (6, 9), (9, 10)): px[x, y] = (20, 20, 24, 255)
+            if dx * dx + dy * dy <= 14:
+                px[x, y] = (244, 244, 240, 255)
+    for x, y in ((7, 6), (9, 7), (6, 9), (9, 10)):
+        px[x, y] = (20, 20, 24, 255)
+    return im
+
+
+def make_pitch() -> Image.Image:
+    # Exact colour/layout idea from web buildBackground(): bg_pitch.
+    w = 512
+    im = Image.new("RGBA", (w, 224), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    d.rectangle((0, 160, w - 1, 223), fill=(18, 48, 22, 255))
+    for x in range(0, w, 64):
+        d.rectangle((x, 160, min(w - 1, x + 31), 223), fill=(22, 56, 26, 255))
+    d.rectangle((0, 160, w - 1, 160), fill=(232, 232, 224, 255))
+    return im
+
+
+def make_fg_cemetery() -> Image.Image:
+    # Same silhouettes used by the web runtime foreground.
+    w = 512
+    im = Image.new("RGBA", (w, 224), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    c = (6, 4, 10, 255)
+    def r(x: int, y: int, ww: int, hh: int) -> None:
+        d.rectangle((x, y, x + ww - 1, y + hh - 1), fill=c)
+    for x in range(60, 120, 8):
+        r(x, 194, 2, 30); r(x - 1, 190, 4, 4); r(x, 188, 2, 2)
+    r(56, 200, 66, 2)
+    for k in range(7):
+        r(330 + k * 5, 200 - (k % 3) * 8, 2, 24)
+        r(326 + k * 6, 196 - (k % 2) * 6, 6, 2)
+    r(440, 178, 4, 46); r(432, 186, 20, 4)
+    return im
+
+
+def make_fg_pitch() -> Image.Image:
+    w = 512
+    im = Image.new("RGBA", (w, 224), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    c = (6, 4, 10, 255)
+    def r(x: int, y: int, ww: int, hh: int) -> None:
+        d.rectangle((x, y, x + ww - 1, y + hh - 1), fill=c)
+    # Camera + photographer + covered bench, matching the web procedural layer.
+    r(90, 196, 4, 28); r(84, 222, 16, 2); r(80, 184, 22, 12); r(100, 188, 8, 5)
+    r(300, 200, 10, 24); r(298, 190, 12, 11); r(308, 194, 10, 4)
+    r(420, 186, 60, 3); r(420, 186, 3, 38); r(477, 186, 3, 38)
     return im
 
 
 def make_fog() -> Image.Image:
-    im = Image.new("RGBA", (320, 64), (0, 0, 0, 0)); px = im.load()
-    for y in range(64):
-        for x in range(320):
-            band = (x // 4 + y // 3) & 3
-            if band in (0, 1) and 5 < y < 60:
-                a = 220 if 18 < y < 48 else 150
-                px[x, y] = (190, 174, 220, a)
+    # Hardware-friendly stippled fog: density varies smoothly but pixels remain
+    # binary transparent/opaque, so it reads like translucent mist on Neo Geo.
+    w, h = 512, 64
+    im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    px = im.load()
+    clouds = [((i * 97) % w, 18 + ((i * 37) % 30)) for i in range(18)]
+    bayer = ((0, 8, 2, 10), (12, 4, 14, 6), (3, 11, 1, 9), (15, 7, 13, 5))
+    for y in range(h):
+        edge = min(1.0, y / 26.0, (h - 1 - y) / 22.0)
+        if edge <= 0:
+            continue
+        for x in range(w):
+            density = 0.0
+            for cx, cy in clouds:
+                dx = min(abs(x - cx), w - abs(x - cx))
+                dy = y - cy
+                dist2 = dx * dx + dy * dy
+                if dist2 < 3600:
+                    density += (1.0 - dist2 / 3600.0) * 0.24
+            density = min(0.78, density * edge)
+            if bayer[y & 3][x & 3] / 16.0 < density:
+                px[x, y] = (200, 190, 230, 255)
     return im
 
 
@@ -243,72 +338,134 @@ def c_u8_array(name: str, values: Iterable[int]) -> str:
 
 def macro_asset(a: Asset) -> str:
     p = f"GNG_{a.name}"
-    return (f"#define {p}_TILE {a.tile_base}\n#define {p}_COLS {a.cols}\n#define {p}_ROWS {a.rows}\n"
-            f"#define {p}_W {a.width}\n#define {p}_H {a.height}\n#define {p}_LOGICAL_W {a.logical_width}\n"
-            f"#define {p}_PAL_FIRST {a.pal_first}\n#define {p}_PAL_COUNT {len(a.palettes)}\n")
+    return (
+        f"#define {p}_TILE {a.tile_base}\n#define {p}_COLS {a.cols}\n#define {p}_ROWS {a.rows}\n"
+        f"#define {p}_W {a.width}\n#define {p}_H {a.height}\n#define {p}_LOGICAL_W {a.logical_width}\n"
+        f"#define {p}_PAL_FIRST {a.pal_first}\n#define {p}_PAL_COUNT {len(a.palettes)}\n"
+    )
 
 
 def emit_header(path: Path, assets: list[Asset], player_frames: list[str], zombie_frames: list[str]) -> None:
-    by_name = {a.name: a for a in assets}
-    max_logical_bg_w = max(by_name[n].logical_width for n in ("SKY", "CITY", "RETRO", "INGRESSO", "INSIDE"))
-    demo_world_w = max(960, min(4192, max_logical_bg_w + LOGICAL_W))
     text = "#ifndef GNG_GFX_ASSETS_H\n#define GNG_GFX_ASSETS_H\n\n"
-    text += "/* Web-space 256x224 -> Neo Geo 320x224 projected assets. */\n"
+    text += "/* Level 1 web geometry projected to Neo Geo C-ROM. */\n"
     text += f"#define GNG_LOGICAL_W {LOGICAL_W}\n#define GNG_SCREEN_W {SCREEN_W}\n#define GNG_SCREEN_H {SCREEN_H}\n"
-    text += f"#define GNG_X_NUM {X_NUM}\n#define GNG_X_DEN {X_DEN}\n#define GNG_DEMO_WORLD_W {demo_world_w}\n\n"
+    text += f"#define GNG_X_NUM {X_NUM}\n#define GNG_X_DEN {X_DEN}\n#define GNG_DEMO_WORLD_W {LEVEL1_WORLD_W}\n\n"
     for a in assets:
         text += macro_asset(a) + "\n"
         text += c_palette_matrix(f"GNG_{a.name}_PALETTES", a.palettes) + "\n"
         text += c_u8_array(f"GNG_{a.name}_PALMAP", a.palmap) + "\n"
     text += f"#define GNG_PLAYER_FRAME_COUNT {len(player_frames)}\n"
-    for i, name in enumerate(player_frames): text += f"#define GNG_PLAYER_FRAME_{name.upper()} {i}\n"
+    for i, name in enumerate(player_frames):
+        text += f"#define GNG_PLAYER_FRAME_{name.upper()} {i}\n"
     text += f"#define GNG_ZOMBIE_FRAME_COUNT {len(zombie_frames)}\n"
-    for i, name in enumerate(zombie_frames): text += f"#define GNG_ZOMBIE_FRAME_{name.upper()} {i}\n"
+    for i, name in enumerate(zombie_frames):
+        text += f"#define GNG_ZOMBIE_FRAME_{name.upper()} {i}\n"
     text += f"#define GNG_ACTOR_COLS {FRAME_CELL_W // TILE}\n#define GNG_ACTOR_ROWS {FRAME_CELL_H // TILE}\n"
-    text += "#endif\n"; path.write_text(text, encoding="utf-8")
+    text += "#endif\n"
+    path.write_text(text, encoding="utf-8")
 
 
 def build(upstream: Path, target: Path) -> None:
-    public = upstream / "game" / "public"; backgrounds, sprites = public / "backgrounds", public / "sprites"
-    assets_dir, src_dir = target / "assets", target / "src"; assets_dir.mkdir(parents=True, exist_ok=True); src_dir.mkdir(parents=True, exist_ok=True)
-    manifest = json.loads((sprites / "manifest.json").read_text(encoding="utf-8")); enemies = json.loads((sprites / "enemies.json").read_text(encoding="utf-8"))
-    sh, zo = manifest["shpendi"], enemies["zombie"]; tile_cursor = CROM_BASE_TILE; built: list[Asset] = []
+    public = upstream / "game" / "public"
+    backgrounds, sprites = public / "backgrounds", public / "sprites"
+    assets_dir, src_dir = target / "assets", target / "src"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    src_dir.mkdir(parents=True, exist_ok=True)
 
-    def add_asset(name: str, filename: str, rgba: Image.Image, logical_w: int, transparent: bool,
-                  pal_first: int, grid: tuple[int, int] | None) -> Asset:
+    manifest = json.loads((sprites / "manifest.json").read_text(encoding="utf-8"))
+    enemies = json.loads((sprites / "enemies.json").read_text(encoding="utf-8"))
+    sh, zo = manifest["shpendi"], enemies["zombie"]
+    tile_cursor = CROM_BASE_TILE
+    built: list[Asset] = []
+
+    def add_asset(
+        name: str,
+        filename: str,
+        rgba: Image.Image,
+        logical_w: int,
+        transparent: bool,
+        pal_first: int,
+        grid: tuple[int, int] | None,
+    ) -> Asset:
         nonlocal tile_cursor
-        if rgba.width % TILE or rgba.height % TILE: raise ValueError(f"{name} is not tile aligned: {rgba.size}")
-        if grid is None: indexed, pals, palmap = quantize_single_palette(rgba, transparent, pal_first)
-        else: indexed, pals, palmap = quantize_grid(rgba, transparent, pal_first, grid[0], grid[1])
+        if rgba.width % TILE or rgba.height % TILE:
+            raise ValueError(f"{name} is not tile aligned: {rgba.size}")
+        if grid is None:
+            indexed, pals, palmap = quantize_single_palette(rgba, transparent, pal_first)
+        else:
+            indexed, pals, palmap = quantize_grid(rgba, transparent, pal_first, grid[0], grid[1])
         save_indexed(indexed, assets_dir / filename, transparent)
         cols, rows = rgba.width // TILE, rgba.height // TILE
-        a = Asset(name, filename, tile_cursor, cols, rows, rgba.width, rgba.height, logical_w, pal_first, pals, palmap)
-        built.append(a); tile_cursor += cols * rows; return a
+        a = Asset(name, filename, tile_cursor, cols, rows, rgba.width, rgba.height,
+                  logical_w, pal_first, pals, palmap)
+        built.append(a)
+        tile_cursor += cols * rows
+        return a
 
-    for key, fn, transparent, pal_first, grid in BG_KEYS:
-        path = backgrounds / fn
-        if not path.is_file(): raise SystemExit(f"Missing painted Level 1 layer: {path}")
-        projected, logical_w = project_layer(path)
-        add_asset(key, f"gng_{key.lower()}.gif", projected, logical_w, transparent, pal_first, grid)
+    # Painted planes.
+    sky, sky_lw = project_file(backgrounds / "l1_sky.png")
+    city, city_lw = project_file(backgrounds / "l1_cesena.png")
+    retro_src = Image.open(backgrounds / "l1_stadio_retro.png").convert("RGBA")
+    ingresso_src = Image.open(backgrounds / "l1_stadio_ingresso.png").convert("RGBA")
+    inside, inside_lw = project_file(backgrounds / "l1_inside0.png")
 
-    player = project_sheet_frames(Image.open(sprites / "pl_shpendi_base.png"), int(sh["frameWidth"]), int(sh["frameHeight"]), len(sh["frames"]))
-    zombie = project_sheet_frames(Image.open(sprites / f"{zo['sheet']}.png"), int(zo["frameWidth"]), int(zo["frameHeight"]), len(zo["frames"]))
+    add_asset("SKY", "gng_sky.gif", sky, sky_lw, False, SKY_PAL_FIRST, (12, 4))
+    add_asset("CITY", "gng_city.gif", city, city_lw, True, CITY_PAL_FIRST, (12, 4))
+
+    stage_sources = [
+        ("RETRO", "gng_retro.gif", retro_src),
+        ("BLEND25", "gng_blend25.gif", blend_sources(retro_src, ingresso_src, 0.25)),
+        ("BLEND50", "gng_blend50.gif", blend_sources(retro_src, ingresso_src, 0.50)),
+        ("BLEND75", "gng_blend75.gif", blend_sources(retro_src, ingresso_src, 0.75)),
+        ("INGRESSO", "gng_ingresso.gif", ingresso_src),
+    ]
+    for name, filename, src in stage_sources:
+        projected, logical_w = project_rgba(src)
+        add_asset(name, filename, projected, logical_w, True, STAGE_PAL_FIRST, (16, 4))
+    add_asset("INSIDE", "gng_inside.gif", inside, inside_lw, True, STAGE_PAL_FIRST, (16, 4))
+
+    # Actors / projectile.
+    player = project_sheet_frames(
+        Image.open(sprites / "pl_shpendi_base.png"),
+        int(sh["frameWidth"]), int(sh["frameHeight"]), len(sh["frames"]),
+    )
+    zombie = project_sheet_frames(
+        Image.open(sprites / f"{zo['sheet']}.png"),
+        int(zo["frameWidth"]), int(zo["frameHeight"]), len(zo["frames"]),
+    )
+
     add_asset("GROUND", "gng_ground.gif", make_grass_tile(), 16, False, GROUND_PAL_FIRST, None)
     add_asset("PLAYER", "gng_shpendi.gif", player, FRAME_CELL_LOGICAL_W * len(sh["frames"]), True, PLAYER_PAL_FIRST, None)
     add_asset("ZOMBIE", "gng_zombie.gif", zombie, FRAME_CELL_LOGICAL_W * len(zo["frames"]), True, ZOMBIE_PAL_FIRST, None)
     add_asset("BALL", "gng_ball.gif", make_ball(), 13, True, BALL_PAL_FIRST, None)
-    add_asset("FOG", "gng_fog.gif", make_fog(), LOGICAL_W, True, FOG_PAL_FIRST, (5, 1))
+
+    # Procedural visual layers that were missing from the previous MVS port.
+    fog, fog_lw = project_rgba(make_fog())
+    pitch, pitch_lw = project_rgba(make_pitch())
+    fg_cemetery, fgc_lw = project_rgba(make_fg_cemetery())
+    fg_pitch, fgp_lw = project_rgba(make_fg_pitch())
+    add_asset("FOG", "gng_fog.gif", fog, fog_lw, True, FOG_PAL_FIRST, (8, 1))
+    add_asset("PITCH", "gng_pitch.gif", pitch, pitch_lw, True, PITCH_PAL_FIRST, None)
+    add_asset("FG_CEMETERY", "gng_fg_cemetery.gif", fg_cemetery, fgc_lw, True, FG_CEMETERY_PAL_FIRST, None)
+    add_asset("FG_PITCH", "gng_fg_pitch.gif", fg_pitch, fgp_lw, True, FG_PITCH_PAL_FIRST, None)
 
     emit_header(src_dir / "gfx_assets.h", built, list(sh["frames"]), list(zo["frames"]))
-    print("Generated WEB-GEOMETRY Neo Geo assets:")
-    for a in built: print(f"  {a.name:8s} physical={a.width:4d}x{a.height:<3d} logicalW={a.logical_width:4d} palettes={len(a.palettes):2d} tilebase={a.tile_base}")
-    print("  geometry: 256x224 logical -> 320x224 C-ROM (X 5:4, Y 1:1)")
-    print("  gameplay coordinates remain in original web logical space")
+
+    print("Generated PARALLAX-FIRST Neo Geo Level 1 assets:")
+    for a in built:
+        print(f"  {a.name:12s} physical={a.width:4d}x{a.height:<3d} logicalW={a.logical_width:4d} palettes={len(a.palettes):2d} tilebase={a.tile_base}")
+    print("  world geometry: exact Level 1 width = 4192 logical pixels")
+    print("  screen geometry: 256x224 logical -> 320x224 physical (X 5:4)")
+    print("  added: staged stadium blends + pitch + cemetery/pitch foreground + stippled fog")
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(); ap.add_argument("upstream", type=Path); ap.add_argument("target", type=Path)
-    args = ap.parse_args(); build(args.upstream.resolve(), args.target.resolve())
+    ap = argparse.ArgumentParser()
+    ap.add_argument("upstream", type=Path)
+    ap.add_argument("target", type=Path)
+    args = ap.parse_args()
+    build(args.upstream.resolve(), args.target.resolve())
 
 
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    main()
