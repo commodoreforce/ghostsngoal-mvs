@@ -33,7 +33,6 @@ FRAME_CELL_H = 64
 CROM_BASE_TILE = 256
 BENCHMARK_WORLD_W = 1024
 
-# Palette plan: generous budget for painted art, compact actors/effects.
 SKY_PAL_FIRST = 1
 CITY_PAL_FIRST = 65
 ATMOS_PAL_FIRST = 129
@@ -138,10 +137,7 @@ def quantize_grid(img: Image.Image, transparent: bool, slot_first: int,
             palettes.append(hw)
             for y in range(crop.height):
                 for x in range(crop.width):
-                    if transparent and apx[x, y] < 96:
-                        out_px[x0+x, y0+y] = 0
-                    else:
-                        out_px[x0+x, y0+y] = int(qpx[x, y]) + 1
+                    out_px[x0+x, y0+y] = 0 if transparent and apx[x, y] < 96 else int(qpx[x, y]) + 1
             for ty in range(ty0, ty1):
                 for tx in range(tx0, tx1):
                     palmap[ty*tw + tx] = slot
@@ -189,10 +185,8 @@ def project_sheet_frames(sheet: Image.Image, fw: int, fh: int, frames: int) -> I
 
 
 def make_ground() -> Image.Image:
-    # Web grass/dirt language, but one clean 32x16 repeating tile.
     im = Image.new("RGBA", (32,16), (42,29,20,255)); d=ImageDraw.Draw(im)
-    d.rectangle((0,0,31,3), fill=(47,107,42,255))
-    d.rectangle((0,4,31,4), fill=(29,74,28,255))
+    d.rectangle((0,0,31,3), fill=(47,107,42,255)); d.rectangle((0,4,31,4), fill=(29,74,28,255))
     for x in (1,5,9,13,17,21,25,29): d.rectangle((x,0,x,1), fill=(74,154,58,255))
     d.rectangle((3,8,5,8), fill=(58,42,30,255)); d.rectangle((19,11,22,11), fill=(58,42,30,255))
     return im
@@ -209,42 +203,29 @@ def make_ball() -> Image.Image:
 
 
 def make_atmos() -> Image.Image:
-    """Opaque low-contrast mist wisps on transparent background.
-
-    No checkerboard/dither and no white pixels. This layer is rendered BEHIND
-    actors. It is intentionally subtle so silhouettes remain readable.
-    """
+    """Subtle opaque wisps, always rendered behind actors."""
     w,h=512,224
     im=Image.new("RGBA",(w,h),(0,0,0,0)); d=ImageDraw.Draw(im)
     dark=(49,40,73,255); mid=(66,54,91,255); hi=(82,68,108,255)
-    # Horizontal nocturnal haze banks, all above ground and below the skyline.
     wisps=[(10,132,150,8,dark),(82,146,220,7,mid),(250,126,430,8,dark),
            (330,151,505,6,mid),(0,166,110,5,hi),(175,174,360,5,dark)]
     for x0,y0,x1,hh,c in wisps:
-        # pixel-art taper: 3 nested bars, no alpha blending required
         d.rectangle((x0+8,y0,x1-8,y0+hh-1), fill=c)
         d.rectangle((x0+22,y0-2,x1-22,y0-1), fill=c)
         d.rectangle((x0+30,y0+hh,x1-30,y0+hh+1), fill=c)
-    # sparse tiny stars/haze glints, dark lavender only
-    for x,y in ((72,119),(184,137),(292,116),(406,142),(470,121)):
-        d.point((x,y), fill=hi)
+    for x,y in ((72,119),(184,137),(292,116),(406,142),(470,121)): d.point((x,y), fill=hi)
     return im
 
 
 def make_fg_cemetery() -> Image.Image:
-    """Clean near silhouettes. No solid band across the player."""
+    """Near silhouettes with a large clean opening around the player spawn."""
     w=512; im=Image.new("RGBA",(w,224),(0,0,0,0)); d=ImageDraw.Draw(im); c=(6,4,10,255)
-    # Short iron fence segments with intentional gaps.
-    for base in (44, 360):
+    for base in (156, 360):
         for x in range(base, base+72, 8):
-            d.rectangle((x,198,x+1,223),fill=c)
-            d.rectangle((x-1,194,x+2,197),fill=c)
-            d.rectangle((x,192,x+1,193),fill=c)
+            d.rectangle((x,198,x+1,223),fill=c); d.rectangle((x-1,194,x+2,197),fill=c); d.rectangle((x,192,x+1,193),fill=c)
         d.rectangle((base-4,204,base+76,205),fill=c)
-    # Dry shrub and crooked cross, positioned away from starting player.
     for k in range(6):
-        x=270+k*6; d.rectangle((x,202-(k%3)*7,x+1,223),fill=c)
-        d.rectangle((x-4,198-(k%2)*6,x+4,199-(k%2)*6),fill=c)
+        x=270+k*6; d.rectangle((x,202-(k%3)*7,x+1,223),fill=c); d.rectangle((x-4,198-(k%2)*6,x+4,199-(k%2)*6),fill=c)
     d.rectangle((470,180,473,223),fill=c); d.rectangle((462,188,481,191),fill=c)
     return im
 
@@ -294,10 +275,8 @@ def build(upstream: Path, target: Path) -> None:
         save_indexed(indexed,ad/fn,transparent); cols,rows=rgba.width//16,rgba.height//16
         a=Asset(name,fn,tile_cursor,cols,rows,rgba.width,rgba.height,lw,pfirst,pals,pmap); built.append(a); tile_cursor += cols*rows; return a
 
-    sky,sky_lw=project_file(bgs/"l1_sky.png")
-    city,city_lw=project_file(bgs/"l1_cesena.png")
-    atmos,at_lw=project_rgba(make_atmos())
-    fg,fg_lw=project_rgba(make_fg_cemetery())
+    sky,sky_lw=project_file(bgs/"l1_sky.png"); city,city_lw=project_file(bgs/"l1_cesena.png")
+    atmos,at_lw=project_rgba(make_atmos()); fg,fg_lw=project_rgba(make_fg_cemetery())
     player=project_sheet_frames(Image.open(sprites/"pl_shpendi_base.png"),int(sh["frameWidth"]),int(sh["frameHeight"]),len(sh["frames"]))
     zombie=project_sheet_frames(Image.open(sprites/f"{zo['sheet']}.png"),int(zo["frameWidth"]),int(zo["frameHeight"]),len(zo["frames"]))
 
