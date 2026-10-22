@@ -5,6 +5,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$ROOT/.ngdevkit-examples"
 TARGET="$WORK/ghostsngoal-mvs"
 VENV="$ROOT/.venv-ngdevkit"
+UPSTREAM="$ROOT/.ghostsngoal-upstream"
+UPSTREAM_SHA="7d6d995aa32a6a3df23d23ca857852f85bdc99c2"
 
 if ! command -v brew >/dev/null 2>&1; then
   echo "Homebrew non trovato." >&2
@@ -28,9 +30,7 @@ if [ -z "$NGDEVKIT_PREFIX" ] || [ ! -f "$NGDK_TOOLSDIR/tiletool.py" ]; then
   exit 1
 fi
 
-# Dedicated Python environment for ngdevkit tooling. This deliberately avoids
-# Apple's /usr/bin/python3, Homebrew's rolling 'python', and Homebrew wrapper
-# scripts around ngdevkit's Python tools.
+# Dedicated Python environment for ngdevkit tooling and our asset converter.
 if [ ! -x "$VENV/bin/python" ]; then
   rm -rf "$VENV"
   "$PYTHON_BASE" -m venv "$VENV"
@@ -39,18 +39,25 @@ fi
 "$VENV/bin/python" -m pip install --quiet --upgrade pillow
 PYTHON_BIN="$VENV/bin/python"
 
+# ngdevkit examples are only a generated build workspace.
 if [ ! -d "$WORK/.git" ]; then
   git clone https://github.com/dciabrin/ngdevkit-examples.git "$WORK"
 fi
+
+# Read-only source reference: keep the web game in a separate detached checkout.
+# We never write to commodoreforce/ghostsngoal; it is only the source for runtime art.
+if [ ! -d "$UPSTREAM/.git" ]; then
+  git clone https://github.com/commodoreforce/ghostsngoal.git "$UPSTREAM"
+fi
+git -C "$UPSTREAM" fetch origin "$UPSTREAM_SHA" --depth 1
+git -C "$UPSTREAM" checkout --detach "$UPSTREAM_SHA"
 
 cd "$WORK"
 git submodule update --init --recursive
 autoreconf -iv
 ./configure --with-python="$PYTHON_BIN"
 
-# The binaries under $(pkg-config --variable=bindir ngdevkit) are Homebrew
-# shell wrappers. Never feed those wrappers to Python. Point config.mk directly
-# at the actual .py sources under the formula's libexec/bin directory.
+# Homebrew exposes shell wrappers in bin. Force the actual Python tools.
 force_python_tool() {
   key="$1"
   script="$2"
@@ -97,19 +104,24 @@ cp "$ROOT/mvs/main.c" "$TARGET/main.c"
 cp "$ROOT/src/game.c" "$ROOT/src/game.h" "$ROOT/src/levels.c" "$ROOT/src/levels.h" "$ROOT/src/characters.c" "$ROOT/src/characters.h" "$TARGET/src/"
 cp "$ROOT/mvs/Makefile" "$TARGET/Makefile"
 
-# Fail early using the exact interpreter + real Python tool source that the
-# generated project will use.
+# Fail early using the exact interpreter + real Python tool source.
 echo "Preflight ngdevkit tiletool with pinned Python:"
 "$PYTHON_BIN" "$NGDK_TOOLSDIR/tiletool.py" --help >/dev/null
 "$PYTHON_BIN" -c 'from PIL import Image; import sys; print("  Python", sys.version.split()[0], "+ Pillow OK")'
 echo "  TILETOOL=$PYTHON_BIN $NGDK_TOOLSDIR/tiletool.py"
+
+# Build the first true C-ROM visual slice from the exact runtime assets.
+echo
+echo "Building Ghosts n Goals MVS visual assets from upstream $UPSTREAM_SHA"
+"$PYTHON_BIN" "$ROOT/scripts/build-mvs-visual-assets.py" "$UPSTREAM" "$TARGET"
 
 rm -rf "$TARGET/build"
 gmake -C "$TARGET" generate
 
 echo
 printf 'Prepared ngdevkit project at:\n  %s\n' "$TARGET"
-printf 'Python used by ngdevkit:\n  %s\n\n' "$PYTHON_BIN"
+printf 'Python used by ngdevkit:\n  %s\n' "$PYTHON_BIN"
+printf 'Visual source commit:\n  %s\n\n' "$UPSTREAM_SHA"
 echo "Build with:"
 echo "  cd \"$TARGET\""
 echo "  gmake"
