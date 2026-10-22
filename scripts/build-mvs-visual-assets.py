@@ -117,7 +117,7 @@ def emit_header(path: Path, palettes: dict[str, Iterable[int]]) -> None:
         body = ", ".join(f"0x{v:04x}" for v in vals)
         return f"static const unsigned short {name}[16] = {{ {body} }};\n"
 
-    text = """#ifndef GNG_GFX_ASSETS_H\n#define GNG_GFX_ASSETS_H\n\n"
+    text = "#ifndef GNG_GFX_ASSETS_H\n#define GNG_GFX_ASSETS_H\n\n"
     text += "/* Generated from the pinned runtime assets of commodoreforce/ghostsngoal. */\n"
     text += f"#define GNG_TILE_BG {BG_TILE}\n"
     text += f"#define GNG_TILE_PLAYER {PLAYER_TILE}\n"
@@ -167,9 +167,9 @@ def build(upstream: Path, target: Path) -> None:
 
     print("Generated MVS visual slice:")
     print(f"  background : {assets / 'gng_l1_bg.gif'} (320x224, tile {BG_TILE})")
-    print(f"  Shpendi   : {assets / 'gng_shpendi.gif'} (4 exact runtime frames, tile {PLAYER_TILE})")
-    print(f"  zombie    : {assets / 'gng_zombie.gif'} (4 exact runtime frames, tile {ZOMBIE_TILE})")
-    print(f"  ball      : {assets / 'gng_ball.gif'} (tile {BALL_TILE})")
+    print(f"  Shpendi    : {assets / 'gng_shpendi.gif'} (4 exact runtime frames, tile {PLAYER_TILE})")
+    print(f"  zombie     : {assets / 'gng_zombie.gif'} (4 exact runtime frames, tile {ZOMBIE_TILE})")
+    print(f"  ball       : {assets / 'gng_ball.gif'} (tile {BALL_TILE})")
 
 
 def main() -> None:
