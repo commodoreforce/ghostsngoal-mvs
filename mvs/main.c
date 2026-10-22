@@ -3,50 +3,71 @@
 #include <ngdevkit/ng-fix.h>
 #include <ngdevkit/ng-video.h>
 #include <stdio.h>
-#include "../src/game.h"
 
+#define USER_MODE_BOOT 0x0
+#define USER_MODE_DEMO 0x1
 #define USER_MODE_GAME 0x2
 #define SYSTEM_MVS 0x80
 
-static GngGame game;
-static char hud[40];
-static u8 prev_pad;
+static char str[32];
+
+static void set_backdrop(u16 color) {
+    *((volatile u16*)0x401ffe) = color;
+}
 
 static void init_screen(void) {
-    const u16 palette[] = {0x8000, 0x0fff, 0x0555, 0x0bbb};
+    const u16 palette[] = {0x8000, 0x0fff, 0x0555};
     ng_cls();
-    for (u16 i = 0; i < 4; ++i) MMAP_PALBANK1[i] = palette[i];
-    *((volatile u16*)0x401ffe) = 0x0000;
+    for (u16 i = 0; i < 3; ++i) {
+        MMAP_PALBANK1[i] = palette[i];
+    }
 }
 
-static void draw_title(void) {
-    ng_center_text_tall(7, 0, "GHOSTS 'N GOALS");
-    ng_center_text(11, 0, "CESENA FOOTBALL CLUB");
-    ng_center_text(14, 0, "NEO GEO MVS EDITION");
-    ng_center_text(21, 0, bios_mvs_flag == SYSTEM_MVS ? "INSERT COIN" : "PRESS START");
-    ng_center_text(25, 0, "A JUMP   B KICK");
+static void demo_mode(void) {
+    set_backdrop(0x0088);
+    ng_center_text_tall(8, 0, "GHOSTS N GOALS");
+    ng_center_text(11, 0, "MVS DIAGNOSTIC BUILD");
+    ng_center_text(16, 0, "DEMO MODE");
+    ng_center_text(22, 0, bios_mvs_flag == SYSTEM_MVS ? "INSERT COIN" : "PRESS START");
+
+    u16 frames = 60 * 15;
+    while (frames-- && bios_user_mode != USER_MODE_GAME) {
+        ng_wait_vblank();
+    }
 }
 
-static GngInput read_input(void) {
-    const u8 pad = bios_p1current;
-    GngInput in = {0};
-    in.up = !!(pad & CNT_UP);
-    in.down = !!(pad & CNT_DOWN);
-    in.left = !!(pad & CNT_LEFT);
-    in.right = !!(pad & CNT_RIGHT);
-    in.jump = !!((pad & CNT_A) && !(prev_pad & CNT_A));
-    in.kick = !!((pad & CNT_B) && !(prev_pad & CNT_B));
-    prev_pad = pad;
-    return in;
+static void title_mode(void) {
+    set_backdrop(0x0800);
+    ng_center_text_tall(8, 0, "GHOSTS N GOALS");
+    ng_center_text(16, 0, "TITLE MODE");
+    ng_center_text(22, 0, "PRESS START");
+
+    while (bios_user_mode != USER_MODE_GAME) {
+        sprintf(str, "TIMER %02x", bios_compulsion_timer);
+        ng_center_text(24, 0, str);
+        ng_wait_vblank();
+    }
 }
 
-static void draw_hud(void) {
-    sprintf(hud, "SCORE %06lu", (unsigned long)game.score);
-    ng_text(1, 1, 0, hud);
-    sprintf(hud, "HI %06lu", (unsigned long)game.high_score);
-    ng_text(25, 1, 0, hud);
-    sprintf(hud, "STAGE %u  LIFE %u", (unsigned)(game.level + 1), (unsigned)game.player.lives);
-    ng_text(1, 27, 0, hud);
+static void game_mode(void) {
+    ng_cls();
+    set_backdrop(0x8008);
+    ng_center_text_tall(8, 0, "GAME RUNNING");
+    ng_center_text(14, 0, "MVS BOOT OK");
+    ng_center_text(18, 0, "68000 CODE OK");
+    ng_center_text(22, 0, "PRESS A FOR GAME OVER");
+
+    while ((bios_p1current & CNT_A) == 0) {
+        ng_wait_vblank();
+    }
+
+    bios_player_mod1 = 0;
+    ng_cls();
+    set_backdrop(0x0a00);
+    ng_center_text_tall(13, 0, "GAME OVER");
+    for (u16 wait = 180; wait; --wait) {
+        ng_wait_vblank();
+    }
 }
 
 void player_start(void) {
@@ -55,50 +76,20 @@ void player_start(void) {
 }
 
 void coin_sound(void) {
-    /* ADPCM coin sound will be bound to the Z80 driver in the audio milestone. */
-}
-
-static void attract_mode(void) {
-    draw_title();
-    u16 frames = 60 * 15;
-    while (frames-- && bios_user_mode != USER_MODE_GAME) {
-        ng_wait_vblank();
-    }
-}
-
-static void game_mode(void) {
-    ng_cls();
-    gng_init(&game);
-    gng_reset_run(&game);
-    game.state = GNG_STATE_PLAY;
-    prev_pad = 0;
-
-    while (game.state != GNG_STATE_GAMEOVER && game.state != GNG_STATE_HIGHSCORE) {
-        GngInput in = read_input();
-        gng_step(&game, in);
-        draw_hud();
-        ng_wait_vblank();
-    }
-
-    bios_player_mod1 = 0;
-    ng_cls();
-    ng_center_text_tall(13, 0, "GAME OVER");
-    sprintf(hud, "SCORE %06lu", (unsigned long)game.score);
-    ng_center_text(18, 0, hud);
-    for (u16 wait = 180; wait; --wait) ng_wait_vblank();
 }
 
 int main(void) {
     init_screen();
-    attract_mode();
-    if (bios_user_mode == USER_MODE_GAME) game_mode();
+    demo_mode();
+    if (bios_user_mode == USER_MODE_GAME) {
+        game_mode();
+    }
     return 0;
 }
 
 int main_mvs_title(void) {
     init_screen();
-    draw_title();
-    while (bios_user_mode != USER_MODE_GAME) ng_wait_vblank();
+    title_mode();
     game_mode();
     return 0;
 }
