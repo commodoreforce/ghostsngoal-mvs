@@ -15,7 +15,14 @@ include build.mk
 include emu.mk
 
 ELF=$(BUILDDIR)/rom.elf
-$(ELF): $(BUILDDIR)/main.o $(BUILDDIR)/src/game.o $(BUILDDIR)/src/levels.o $(BUILDDIR)/src/characters.o
+CORE_OBJS=$(BUILDDIR)/src/game.o $(BUILDDIR)/src/levels.o $(BUILDDIR)/src/characters.o
+
+# ngdevkit's generic %.o rule does not itself create nested output folders.
+# Make the source build directory an explicit order-only prerequisite so a
+# completely clean build can compile build/src/*.o reliably.
+$(CORE_OBJS): | $(BUILDDIR)/src
+
+$(ELF): $(BUILDDIR)/main.o $(CORE_OBJS)
 $(PROM1): $(ELF)
 
 # Phase 1 hardware build uses ngdevkit stock FIX/font and placeholder sprite ROMs.
