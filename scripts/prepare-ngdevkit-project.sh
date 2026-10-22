@@ -11,11 +11,12 @@ if ! command -v brew >/dev/null 2>&1; then
 fi
 
 PREFIX="$(brew --prefix)"
-PYTHON_BIN="$PREFIX/bin/python3"
+PYTHON_PREFIX="$(brew --prefix python@3.14 2>/dev/null || true)"
+PYTHON_BIN="$PYTHON_PREFIX/bin/python3.14"
 
-if [ ! -x "$PYTHON_BIN" ]; then
-  echo "Python Homebrew non trovato in $PYTHON_BIN" >&2
-  echo "Esegui: brew install python" >&2
+if [ -z "$PYTHON_PREFIX" ] || [ ! -x "$PYTHON_BIN" ]; then
+  echo "Python 3.14 Homebrew non trovato." >&2
+  echo "Esegui: brew install python@3.14" >&2
   exit 1
 fi
 
