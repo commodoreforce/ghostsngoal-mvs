@@ -39,10 +39,10 @@ BG_KEYS = [
 ]
 
 PLAYER_PAL_FIRST = 129
-ZOMBIE_PAL_FIRST = 137
-BALL_PAL_FIRST = 145
-GROUND_PAL_FIRST = 146
-FOG_PAL_FIRST = 147
+ZOMBIE_PAL_FIRST = 130
+BALL_PAL_FIRST = 131
+GROUND_PAL_FIRST = 132
+FOG_PAL_FIRST = 133
 
 
 @dataclass
@@ -69,7 +69,6 @@ def project_x(n: int) -> int:
 
 
 def neogeo_color(rgb: tuple[int, int, int]) -> int:
-    """Match ngdevkit paltool's RGB -> Neo Geo packed colour conversion."""
     r, g, b = [c >> 2 for c in rgb]
     darkbit = 1 if ((r & 1) + (g & 1) + (b & 1)) == 0 else 0
     r, g, b = r >> 1, g >> 1, b >> 1
@@ -94,7 +93,6 @@ def neutral_gif_palette() -> list[int]:
 
 
 def project_layer(path: Path) -> tuple[Image.Image, int]:
-    """Project native web pixels horizontally 5:4; preserve vertical pixels exactly."""
     src = Image.open(path).convert("RGBA")
     logical_w = src.width
     crop_h = min(src.height, SCREEN_H)
@@ -106,13 +104,8 @@ def project_layer(path: Path) -> tuple[Image.Image, int]:
     return out, logical_w
 
 
-def quantize_grid(
-    img: Image.Image,
-    transparent: bool,
-    slot_first: int,
-    grid_cols: int,
-    grid_rows: int,
-) -> tuple[Image.Image, list[list[int]], list[int]]:
+def quantize_grid(img: Image.Image, transparent: bool, slot_first: int,
+                  grid_cols: int, grid_rows: int) -> tuple[Image.Image, list[list[int]], list[int]]:
     rgba = img.convert("RGBA")
     tiles_w = rgba.width // TILE
     tiles_h = rgba.height // TILE
@@ -144,7 +137,6 @@ def quantize_grid(
                 off = i * 3
                 hw.append(neogeo_color((qpal[off], qpal[off + 1], qpal[off + 2])))
             palettes.append(hw)
-
             for y in range(crop.height):
                 for x in range(crop.width):
                     if transparent and apx[x, y] < 96:
@@ -156,14 +148,11 @@ def quantize_grid(
                     palmap[ty * tiles_w + tx] = slot
 
     out.putpalette(neutral_gif_palette())
-    if transparent:
-        out.info["transparency"] = 0
+    if transparent: out.info["transparency"] = 0
     return out, palettes, palmap
 
 
-def quantize_single_palette(
-    img: Image.Image, transparent: bool, slot: int
-) -> tuple[Image.Image, list[list[int]], list[int]]:
+def quantize_single_palette(img: Image.Image, transparent: bool, slot: int) -> tuple[Image.Image, list[list[int]], list[int]]:
     rgba = img.convert("RGBA")
     alpha = rgba.getchannel("A")
     rgb = Image.new("RGB", rgba.size, (0, 0, 0))
@@ -174,13 +163,10 @@ def quantize_single_palette(
     opx, qpx, apx = out.load(), q.load(), alpha.load()
     for y in range(rgba.height):
         for x in range(rgba.width):
-            if transparent and apx[x, y] < 96:
-                opx[x, y] = 0
-            else:
-                opx[x, y] = int(qpx[x, y]) + 1
+            if transparent and apx[x, y] < 96: opx[x, y] = 0
+            else: opx[x, y] = int(qpx[x, y]) + 1
     out.putpalette(neutral_gif_palette())
-    if transparent:
-        out.info["transparency"] = 0
+    if transparent: out.info["transparency"] = 0
     hw = [0x8000]
     for i in range(15):
         off = i * 3
@@ -191,14 +177,11 @@ def quantize_single_palette(
 
 def save_indexed(img: Image.Image, path: Path, transparent: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    if transparent:
-        img.save(path, format="GIF", transparency=0, optimize=False)
-    else:
-        img.save(path, format="GIF", optimize=False)
+    if transparent: img.save(path, format="GIF", transparency=0, optimize=False)
+    else: img.save(path, format="GIF", optimize=False)
 
 
 def project_sheet_frames(sheet: Image.Image, fw: int, fh: int, frames: int) -> Image.Image:
-    """Project each frame independently, avoiding bleed between animation cells."""
     projected_fw = project_x(fw)
     if projected_fw > FRAME_CELL_W or fh > FRAME_CELL_H:
         raise ValueError(f"projected frame {projected_fw}x{fh} exceeds {FRAME_CELL_W}x{FRAME_CELL_H}")
@@ -223,27 +206,21 @@ def make_grass_tile() -> Image.Image:
     rect(0, 0, 16, 4, (47, 107, 42)); rect(0, 4, 16, 1, (29, 74, 28))
     for x in (1, 5, 9, 13): rect(x, 0, 1, 2, (74, 154, 58))
     rect(3, 8, 2, 1, (58, 42, 30)); rect(10, 11, 3, 1, (58, 42, 30))
-    return logical.resize((20, 16), Image.Resampling.NEAREST).crop((0, 0, 16, 16))
+    return logical
 
 
 def make_ball() -> Image.Image:
-    # Web-style projectile ball: small, crisp, no ground-ball interpretation.
-    im = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
-    px = im.load()
+    im = Image.new("RGBA", (16, 16), (0, 0, 0, 0)); px = im.load()
     for y in range(4, 12):
         for x in range(3, 13):
-            dx = (x - 7.5) / 1.25
-            dy = y - 7.5
-            if dx * dx + dy * dy <= 14:
-                px[x, y] = (244, 244, 240, 255)
-    for x, y in ((7, 6), (9, 7), (6, 9), (9, 10)):
-        px[x, y] = (20, 20, 24, 255)
+            dx = (x - 7.5) / 1.25; dy = y - 7.5
+            if dx * dx + dy * dy <= 14: px[x, y] = (244, 244, 240, 255)
+    for x, y in ((7, 6), (9, 7), (6, 9), (9, 10)): px[x, y] = (20, 20, 24, 255)
     return im
 
 
 def make_fog() -> Image.Image:
-    im = Image.new("RGBA", (320, 64), (0, 0, 0, 0))
-    px = im.load()
+    im = Image.new("RGBA", (320, 64), (0, 0, 0, 0)); px = im.load()
     for y in range(64):
         for x in range(320):
             band = (x // 4 + y // 3) & 3
@@ -266,11 +243,9 @@ def c_u8_array(name: str, values: Iterable[int]) -> str:
 
 def macro_asset(a: Asset) -> str:
     p = f"GNG_{a.name}"
-    return (
-        f"#define {p}_TILE {a.tile_base}\n#define {p}_COLS {a.cols}\n#define {p}_ROWS {a.rows}\n"
-        f"#define {p}_W {a.width}\n#define {p}_H {a.height}\n#define {p}_LOGICAL_W {a.logical_width}\n"
-        f"#define {p}_PAL_FIRST {a.pal_first}\n#define {p}_PAL_COUNT {len(a.palettes)}\n"
-    )
+    return (f"#define {p}_TILE {a.tile_base}\n#define {p}_COLS {a.cols}\n#define {p}_ROWS {a.rows}\n"
+            f"#define {p}_W {a.width}\n#define {p}_H {a.height}\n#define {p}_LOGICAL_W {a.logical_width}\n"
+            f"#define {p}_PAL_FIRST {a.pal_first}\n#define {p}_PAL_COUNT {len(a.palettes)}\n")
 
 
 def emit_header(path: Path, assets: list[Asset], player_frames: list[str], zombie_frames: list[str]) -> None:
@@ -290,36 +265,25 @@ def emit_header(path: Path, assets: list[Asset], player_frames: list[str], zombi
     text += f"#define GNG_ZOMBIE_FRAME_COUNT {len(zombie_frames)}\n"
     for i, name in enumerate(zombie_frames): text += f"#define GNG_ZOMBIE_FRAME_{name.upper()} {i}\n"
     text += f"#define GNG_ACTOR_COLS {FRAME_CELL_W // TILE}\n#define GNG_ACTOR_ROWS {FRAME_CELL_H // TILE}\n"
-    text += "#endif\n"
-    path.write_text(text, encoding="utf-8")
+    text += "#endif\n"; path.write_text(text, encoding="utf-8")
 
 
 def build(upstream: Path, target: Path) -> None:
-    public = upstream / "game" / "public"
-    backgrounds, sprites = public / "backgrounds", public / "sprites"
-    assets_dir, src_dir = target / "assets", target / "src"
-    assets_dir.mkdir(parents=True, exist_ok=True); src_dir.mkdir(parents=True, exist_ok=True)
-    manifest = json.loads((sprites / "manifest.json").read_text(encoding="utf-8"))
-    enemies = json.loads((sprites / "enemies.json").read_text(encoding="utf-8"))
-    sh, zo = manifest["shpendi"], enemies["zombie"]
-    tile_cursor = CROM_BASE_TILE
-    built: list[Asset] = []
+    public = upstream / "game" / "public"; backgrounds, sprites = public / "backgrounds", public / "sprites"
+    assets_dir, src_dir = target / "assets", target / "src"; assets_dir.mkdir(parents=True, exist_ok=True); src_dir.mkdir(parents=True, exist_ok=True)
+    manifest = json.loads((sprites / "manifest.json").read_text(encoding="utf-8")); enemies = json.loads((sprites / "enemies.json").read_text(encoding="utf-8"))
+    sh, zo = manifest["shpendi"], enemies["zombie"]; tile_cursor = CROM_BASE_TILE; built: list[Asset] = []
 
     def add_asset(name: str, filename: str, rgba: Image.Image, logical_w: int, transparent: bool,
                   pal_first: int, grid: tuple[int, int] | None) -> Asset:
         nonlocal tile_cursor
-        if rgba.width % TILE or rgba.height % TILE:
-            raise ValueError(f"{name} is not tile aligned: {rgba.size}")
-        if grid is None:
-            indexed, pals, palmap = quantize_single_palette(rgba, transparent, pal_first)
-        else:
-            indexed, pals, palmap = quantize_grid(rgba, transparent, pal_first, grid[0], grid[1])
+        if rgba.width % TILE or rgba.height % TILE: raise ValueError(f"{name} is not tile aligned: {rgba.size}")
+        if grid is None: indexed, pals, palmap = quantize_single_palette(rgba, transparent, pal_first)
+        else: indexed, pals, palmap = quantize_grid(rgba, transparent, pal_first, grid[0], grid[1])
         save_indexed(indexed, assets_dir / filename, transparent)
         cols, rows = rgba.width // TILE, rgba.height // TILE
-        a = Asset(name, filename, tile_cursor, cols, rows, rgba.width, rgba.height,
-                  logical_w, pal_first, pals, palmap)
-        built.append(a); tile_cursor += cols * rows
-        return a
+        a = Asset(name, filename, tile_cursor, cols, rows, rgba.width, rgba.height, logical_w, pal_first, pals, palmap)
+        built.append(a); tile_cursor += cols * rows; return a
 
     for key, fn, transparent, pal_first, grid in BG_KEYS:
         path = backgrounds / fn
@@ -330,15 +294,14 @@ def build(upstream: Path, target: Path) -> None:
     player = project_sheet_frames(Image.open(sprites / "pl_shpendi_base.png"), int(sh["frameWidth"]), int(sh["frameHeight"]), len(sh["frames"]))
     zombie = project_sheet_frames(Image.open(sprites / f"{zo['sheet']}.png"), int(zo["frameWidth"]), int(zo["frameHeight"]), len(zo["frames"]))
     add_asset("GROUND", "gng_ground.gif", make_grass_tile(), 16, False, GROUND_PAL_FIRST, None)
-    add_asset("PLAYER", "gng_shpendi.gif", player, FRAME_CELL_LOGICAL_W * len(sh["frames"]), True, PLAYER_PAL_FIRST, (18, 2))
-    add_asset("ZOMBIE", "gng_zombie.gif", zombie, FRAME_CELL_LOGICAL_W * len(zo["frames"]), True, ZOMBIE_PAL_FIRST, (10, 2))
+    add_asset("PLAYER", "gng_shpendi.gif", player, FRAME_CELL_LOGICAL_W * len(sh["frames"]), True, PLAYER_PAL_FIRST, None)
+    add_asset("ZOMBIE", "gng_zombie.gif", zombie, FRAME_CELL_LOGICAL_W * len(zo["frames"]), True, ZOMBIE_PAL_FIRST, None)
     add_asset("BALL", "gng_ball.gif", make_ball(), 13, True, BALL_PAL_FIRST, None)
     add_asset("FOG", "gng_fog.gif", make_fog(), LOGICAL_W, True, FOG_PAL_FIRST, (5, 1))
 
     emit_header(src_dir / "gfx_assets.h", built, list(sh["frames"]), list(zo["frames"]))
     print("Generated WEB-GEOMETRY Neo Geo assets:")
-    for a in built:
-        print(f"  {a.name:8s} physical={a.width:4d}x{a.height:<3d} logicalW={a.logical_width:4d} palettes={len(a.palettes):2d} tilebase={a.tile_base}")
+    for a in built: print(f"  {a.name:8s} physical={a.width:4d}x{a.height:<3d} logicalW={a.logical_width:4d} palettes={len(a.palettes):2d} tilebase={a.tile_base}")
     print("  geometry: 256x224 logical -> 320x224 C-ROM (X 5:4, Y 1:1)")
     print("  gameplay coordinates remain in original web logical space")
 
