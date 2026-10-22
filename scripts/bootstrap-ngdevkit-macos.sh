@@ -9,17 +9,19 @@ fi
 xcode-select -p >/dev/null 2>&1 || xcode-select --install || true
 
 brew tap dciabrin/ngdevkit
-brew install ngdevkit pkg-config autoconf automake rsync zip imagemagick sox make mame || true
-brew install ngdevkit-gngeo || true
+brew trust dciabrin/ngdevkit
+brew install ngdevkit
+brew install pkg-config autoconf automake rsync zip imagemagick sox ngdevkit-gngeo make mame
 
 PREFIX="$(brew --prefix)"
-export PATH="$PREFIX/opt/python3/bin:$PREFIX/bin:$PATH"
+export HOMEBREW_PREFIX="$PREFIX"
+export PATH="$HOMEBREW_PREFIX/opt/python3/bin:$HOMEBREW_PREFIX/bin:$PATH"
 
 echo
-m68k-neogeo-elf-gcc --version | head -n 1 || true
-gmake --version | head -n 1 || true
-mame -version | head -n 1 || true
+m68k-neogeo-elf-gcc --version | head -n 1
+gmake --version | head -n 1
+mame -version | head -n 1
 
 echo
-echo "Toolchain base installata. Ora esegui:"
+echo "Toolchain installata. Ora esegui:"
 echo "  ./scripts/prepare-ngdevkit-project.sh"
