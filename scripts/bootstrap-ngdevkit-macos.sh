@@ -11,18 +11,19 @@ xcode-select -p >/dev/null 2>&1 || xcode-select --install || true
 brew tap dciabrin/ngdevkit
 brew trust dciabrin/ngdevkit
 brew install ngdevkit
-brew install python pkg-config autoconf automake rsync zip imagemagick sox ngdevkit-gngeo make mame
+brew install python@3.14 pkg-config autoconf automake rsync zip imagemagick sox ngdevkit-gngeo make mame
 
 PREFIX="$(brew --prefix)"
-PYTHON_BIN="$PREFIX/bin/python3"
+PYTHON_PREFIX="$(brew --prefix python@3.14)"
+PYTHON_BIN="$PYTHON_PREFIX/bin/python3.14"
 
 if [ ! -x "$PYTHON_BIN" ]; then
-  echo "Python Homebrew non trovato in $PYTHON_BIN" >&2
+  echo "Python 3.14 Homebrew non trovato in $PYTHON_BIN" >&2
   exit 1
 fi
 
 export HOMEBREW_PREFIX="$PREFIX"
-export PATH="$PREFIX/bin:$PATH"
+export PATH="$PYTHON_PREFIX/bin:$PREFIX/bin:$PATH"
 
 echo
 "$PYTHON_BIN" --version
@@ -31,6 +32,6 @@ gmake --version | head -n 1
 mame -version | head -n 1
 
 echo
-echo "Toolchain installata. Python ngdevkit: $PYTHON_BIN"
+echo "Toolchain installata. Python ngdevkit fissato a: $PYTHON_BIN"
 echo "Ora esegui:"
 echo "  ./scripts/prepare-ngdevkit-project.sh"
