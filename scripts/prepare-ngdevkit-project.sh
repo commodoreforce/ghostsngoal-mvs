@@ -5,6 +5,20 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$ROOT/.ngdevkit-examples"
 TARGET="$WORK/ghostsngoal-mvs"
 
+if ! command -v brew >/dev/null 2>&1; then
+  echo "Homebrew non trovato." >&2
+  exit 1
+fi
+
+PREFIX="$(brew --prefix)"
+PYTHON_BIN="$PREFIX/bin/python3"
+
+if [ ! -x "$PYTHON_BIN" ]; then
+  echo "Python Homebrew non trovato in $PYTHON_BIN" >&2
+  echo "Esegui: brew install python" >&2
+  exit 1
+fi
+
 if [ ! -d "$WORK/.git" ]; then
   git clone https://github.com/dciabrin/ngdevkit-examples.git "$WORK"
 fi
@@ -12,7 +26,7 @@ fi
 cd "$WORK"
 git submodule update --init --recursive
 autoreconf -iv
-./configure
+./configure --with-python="$PYTHON_BIN"
 
 rm -rf "$TARGET"
 mkdir -p "$TARGET/src"
@@ -28,14 +42,12 @@ cp "$ROOT/mvs/main.c" "$TARGET/main.c"
 cp "$ROOT/src/game.c" "$ROOT/src/game.h" "$ROOT/src/levels.c" "$ROOT/src/levels.h" "$ROOT/src/characters.c" "$ROOT/src/characters.h" "$TARGET/src/"
 cp "$ROOT/mvs/Makefile" "$TARGET/Makefile"
 
-# Force generation of the stock ngdevkit FIX/C-ROM/M-ROM assets now.
-# This avoids stale build/.generated markers leaving the project without
-# base-sound-driver.ihx or the stock logo/font ROM fragments.
-rm -f "$TARGET/build/.generated"
+rm -rf "$TARGET/build"
 gmake -C "$TARGET" generate
 
 echo
-printf 'Prepared ngdevkit project at:\n  %s\n\n' "$TARGET"
+printf 'Prepared ngdevkit project at:\n  %s\n' "$TARGET"
+printf 'Python used by ngdevkit:\n  %s\n\n' "$PYTHON_BIN"
 echo "Build with:"
 echo "  cd \"$TARGET\""
 echo "  gmake"
