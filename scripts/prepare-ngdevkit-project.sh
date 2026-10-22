@@ -28,6 +28,12 @@ cp "$ROOT/mvs/main.c" "$TARGET/main.c"
 cp "$ROOT/src/game.c" "$ROOT/src/game.h" "$ROOT/src/levels.c" "$ROOT/src/levels.h" "$ROOT/src/characters.c" "$ROOT/src/characters.h" "$TARGET/src/"
 cp "$ROOT/mvs/Makefile" "$TARGET/Makefile"
 
+# Force generation of the stock ngdevkit FIX/C-ROM/M-ROM assets now.
+# This avoids stale build/.generated markers leaving the project without
+# base-sound-driver.ihx or the stock logo/font ROM fragments.
+rm -f "$TARGET/build/.generated"
+gmake -C "$TARGET" generate
+
 echo
 printf 'Prepared ngdevkit project at:\n  %s\n\n' "$TARGET"
 echo "Build with:"
