@@ -9,8 +9,12 @@ from PIL import Image, ImageDraw
 HERE = Path(__file__).resolve().parent
 BASE_PATH = HERE / "build-mvs-visual-assets.py"
 spec = importlib.util.spec_from_file_location("gng_v4_base", BASE_PATH)
-base = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
+base = importlib.util.module_from_spec(spec)
+# Python 3.14 dataclasses resolves postponed annotations through sys.modules.
+# Register the dynamically loaded module before executing it, exactly as the
+# normal import machinery would do.
+sys.modules[spec.name] = base
 spec.loader.exec_module(base)
 
 # V5 rule: where the web already has a final separated layer, prefer it.
