@@ -48,45 +48,101 @@ force_python_tool ROMTOOL romtool.py
 rm -f config.mk.bak
 
 rm -rf "$TARGET"
-mkdir -p "$TARGET/src"
+mkdir -p "$TARGET/src" "$TARGET/assets/audio"
 cp 00-template/build.mk "$TARGET/build.mk"
 cp 00-template/emu.mk "$TARGET/emu.mk"
 cp 00-template/rom.mk "$TARGET/rom.mk"
 cp config.mk "$TARGET/config.mk"
-cp -R 00-template/assets "$TARGET/assets"
+cp -R 00-template/assets/. "$TARGET/assets/"
 cp -R 00-template/setup "$TARGET/setup"
 cp "$ROOT/mvs/main.c" "$TARGET/main.c"
-"$PYTHON_BIN" "$ROOT/scripts/patch_main_v5.py" "$TARGET/main.c"
-cp "$ROOT/src/game.c" "$ROOT/src/game.h" "$ROOT/src/levels.c" "$ROOT/src/levels.h" "$ROOT/src/characters.c" "$ROOT/src/characters.h" "$TARGET/src/"
 cp "$ROOT/mvs/Makefile" "$TARGET/Makefile"
+cp "$ROOT/mvs/user_commands.s" "$TARGET/user_commands.s"
+cp "$ROOT/mvs/sample-map.yaml" "$TARGET/assets/sample-map.yaml"
+cp "$ROOT/mvs/music-map.yaml" "$TARGET/assets/music-map.yaml"
+cp "$ROOT/src/game.c" "$ROOT/src/game.h" "$ROOT/src/levels.c" "$ROOT/src/levels.h" "$ROOT/src/characters.c" "$ROOT/src/characters.h" "$TARGET/src/"
 
-echo "Preflight ngdevkit tiletool with pinned Python:"
+# User-provided title/intro audio. Search common locations automatically.
+INTRO=""
+for p in "$ROOT/reference-packs/intro.mp3" "$ROOT/intro.mp3" "$HOME/Downloads/intro.mp3"; do
+  if [ -f "$p" ]; then INTRO="$p"; break; fi
+done
+if [ -z "$INTRO" ] && [ -d "$HOME/Downloads" ]; then INTRO="$(find "$HOME/Downloads" -maxdepth 1 -iname 'intro*.mp3' -print -quit 2>/dev/null || true)"; fi
+if [ -z "$INTRO" ]; then echo "ERRORE: intro.mp3 non trovato. Mettilo in reference-packs/intro.mp3 o ~/Downloads/intro.mp3" >&2; exit 1; fi
+
+echo "Intro audio: $INTRO"
+if command -v ffmpeg >/dev/null 2>&1; then
+  ffmpeg -loglevel error -y -i "$INTRO" -ac 1 -ar 22050 -sample_fmt s16 "$TARGET/assets/audio/intro.wav"
+elif command -v sox >/dev/null 2>&1; then
+  sox "$INTRO" -c 1 -r 22050 -b 16 "$TARGET/assets/audio/intro.wav"
+else
+  echo "Serve ffmpeg o sox per convertire intro.mp3" >&2; exit 1
+fi
+
+# Generate original arcade-style Level 1 loop and essential gameplay SFX.
+"$PYTHON_BIN" - "$TARGET/assets/audio" <<'PY'
+import math, wave, struct, random, sys
+from pathlib import Path
+out=Path(sys.argv[1]); sr=22050
+
+def save(name, samples):
+    m=max(1e-6,max(abs(x) for x in samples)); scale=0.82/m
+    with wave.open(str(out/name),'wb') as w:
+        w.setnchannels(1);w.setsampwidth(2);w.setframerate(sr)
+        w.writeframes(b''.join(struct.pack('<h',int(max(-1,min(1,x*scale))*32767)) for x in samples))
+
+def tone(freq,dur,kind='square',amp=.5):
+    n=int(sr*dur);a=[]
+    for i in range(n):
+        t=i/sr; s=math.sin(2*math.pi*freq*t)
+        if kind=='square': s=1 if s>=0 else -1
+        elif kind=='tri': s=2/math.pi*math.asin(s)
+        a.append(s*amp*(1-i/max(1,n)*.08))
+    return a
+
+def mix(dst,src,start,g=1):
+    k=int(start*sr)
+    if len(dst)<k+len(src):dst.extend([0.0]*(k+len(src)-len(dst)))
+    for i,v in enumerate(src):dst[k+i]+=v*g
+
+# 15.5s original arcade/horror loop: minor arpeggio + liscio-like upbeat pulse.
+dur=15.5; music=[0.0]*int(sr*dur)
+notes=[110.00,130.81,164.81,196.00,164.81,130.81,98.00,123.47,146.83,196.00,146.83,123.47]
+step=.25
+for k in range(int(dur/step)):
+    f=notes[k%len(notes)];mix(music,tone(f,.19,'square',.20),k*step)
+    mix(music,tone(f*2,.11,'tri',.11),k*step+.125)
+    if k%2==0: mix(music,tone(55,.07,'square',.22),k*step)
+    if k%4 in (1,3):
+        noise=[(random.random()*2-1)*.10*(1-i/(sr*.045)) for i in range(int(sr*.045))]
+        mix(music,noise,k*step)
+save('level_loop.wav',music)
+save('kick.wav',tone(170,.10,'square',.7)+tone(100,.07,'tri',.4))
+save('hit.wav',tone(85,.15,'square',.8))
+save('enemy_die.wav',tone(260,.06,'square',.6)+tone(180,.08,'square',.5)+tone(100,.12,'tri',.45))
+save('boss_hit.wav',tone(70,.18,'square',.75)+tone(45,.16,'tri',.5))
+clear=[]
+for i,f in enumerate((261.63,329.63,392.00,523.25)):mix(clear,tone(f,.22,'square',.45),i*.16)
+save('stage_clear.wav',clear)
+PY
+
+echo "Preflight ngdevkit tools:"
 "$PYTHON_BIN" "$NGDK_TOOLSDIR/tiletool.py" --help >/dev/null
-"$PYTHON_BIN" -c 'from PIL import Image; import sys; print("  Python", sys.version.split()[0], "+ Pillow OK")'
-echo "  TILETOOL=$PYTHON_BIN $NGDK_TOOLSDIR/tiletool.py"
-
-ENV_PACK=""
-SPRITE_PACK=""
-for p in "$ROOT/reference-packs/ambientazione.zip" "$ROOT/ambientazione.zip"; do [ -f "$p" ] && ENV_PACK="$p" && break; done
-for p in "$ROOT/reference-packs/sprite.zip" "$ROOT/sprite.zip"; do [ -f "$p" ] && SPRITE_PACK="$p" && break; done
-ASSET_ARGS=()
-if [ -n "$ENV_PACK" ]; then ASSET_ARGS+=(--environment-pack "$ENV_PACK"); echo "Original environment pack available: $ENV_PACK"; fi
-if [ -n "$SPRITE_PACK" ]; then ASSET_ARGS+=(--sprite-pack "$SPRITE_PACK"); echo "Original sprite pack: $SPRITE_PACK"; else echo "INFO: sprite.zip not found; actor runtime frames remain active"; fi
+"$PYTHON_BIN" -c 'from PIL import Image; import sys; print("  Python",sys.version.split()[0],"+ Pillow OK")'
 
 echo
-echo "Building Ghosts n Goals PREMIUM OPENING V5"
-"$PYTHON_BIN" "$ROOT/scripts/build_premium_opening_v5.py" "$UPSTREAM" "$TARGET" "${ASSET_ARGS[@]}"
+echo "Building Ghosts n Goals FULL LEVEL 1 assets from web reference $UPSTREAM_SHA"
+"$PYTHON_BIN" "$ROOT/scripts/build_level1_full.py" "$UPSTREAM" "$TARGET"
 
 rm -rf "$TARGET/build"
 gmake -C "$TARGET" generate
 
 echo
-printf 'Prepared ngdevkit V5 project at:\n  %s\n' "$TARGET"
-printf 'Python used by ngdevkit:\n  %s\n' "$PYTHON_BIN"
+printf 'Prepared FULL LEVEL 1 ngdevkit project at:\n  %s\n' "$TARGET"
+printf 'Intro converted to native sound source:\n  %s\n' "$TARGET/assets/audio/intro.wav"
 printf 'Web reference commit:\n  %s\n' "$UPSTREAM_SHA"
-[ -n "$SPRITE_PACK" ] && printf 'Sprite master pack:\n  %s\n' "$SPRITE_PACK"
 echo
-echo "Build with:"
+echo "Build and run:"
 echo "  cd \"$TARGET\""
 echo "  gmake"
 echo "  gmake mame-mvs"
