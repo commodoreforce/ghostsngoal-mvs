@@ -62,21 +62,32 @@ cp "$ROOT/mvs/sample-map.yaml" "$TARGET/assets/sample-map.yaml"
 cp "$ROOT/mvs/music-map.yaml" "$TARGET/assets/music-map.yaml"
 cp "$ROOT/src/game.c" "$ROOT/src/game.h" "$ROOT/src/levels.c" "$ROOT/src/levels.h" "$ROOT/src/characters.c" "$ROOT/src/characters.h" "$TARGET/src/"
 
-# Adapt the runtime source to the ngdevkit headers installed on this machine.
-# Current ngdevkit already defines ADDR_SCB1/ADDR_SCB2 and names P1 Start CNT_START1.
+# Normalize the runtime source for the installed ngdevkit exactly once.
+# This operation is idempotent: running preparation repeatedly cannot create CNT_START11, etc.
 "$PYTHON_BIN" - "$TARGET/main.c" <<'PY'
 from pathlib import Path
 import sys, re
-p=Path(sys.argv[1])
-s=p.read_text()
-s=re.sub(r'^#define ADDR_SCB1 .*\n', '', s, flags=re.M)
-s=re.sub(r'^#define ADDR_SCB2 .*\n', '', s, flags=re.M)
-s=s.replace('CNT_START)', 'CNT_START1)')
-s=s.replace('CNT_START|', 'CNT_START1|')
-s=s.replace('|CNT_START', '|CNT_START1')
-s=s.replace('&CNT_START', '&CNT_START1')
-s=s.replace('camera_x_fp,GROUND_Y-16);draw_layer(SCB_FOREGROUND', 'camera_x_fp,GROUND_Y);draw_layer(SCB_FOREGROUND')
+p = Path(sys.argv[1])
+s = p.read_text()
+s = re.sub(r'^#define\s+ADDR_SCB1\b.*\n', '', s, flags=re.M)
+s = re.sub(r'^#define\s+ADDR_SCB2\b.*\n', '', s, flags=re.M)
+s = re.sub(r'\bCNT_START\d*\b', 'CNT_START1', s)
+s = s.replace('camera_x_fp,GROUND_Y-16);draw_layer(SCB_FOREGROUND',
+              'camera_x_fp,GROUND_Y);draw_layer(SCB_FOREGROUND')
 p.write_text(s)
+
+# Fail here, before gcc, if normalization did not produce exactly the expected source.
+errors = []
+if re.search(r'^#define\s+ADDR_SCB[12]\b', s, flags=re.M):
+    errors.append('local ADDR_SCB1/ADDR_SCB2 definition still present')
+start_tokens = sorted(set(re.findall(r'\bCNT_START\d*\b', s)))
+if start_tokens != ['CNT_START1']:
+    errors.append(f'unexpected Start symbols: {start_tokens}')
+if 'CNT_START11' in s:
+    errors.append('CNT_START11 regression detected')
+if errors:
+    raise SystemExit('ngdevkit source normalization FAILED: ' + '; '.join(errors))
+print('  ngdevkit source normalization OK: CNT_START1, SCB registers from headers')
 PY
 
 # User-provided title/intro audio. Search common locations automatically.
