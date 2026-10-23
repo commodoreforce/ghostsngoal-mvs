@@ -4,6 +4,10 @@
     name: intro
     uri: file://assets/audio/intro.wav
 - adpcm_a:
+    channel: 4
+    name: level_loop
+    uri: file://assets/audio/level_loop.wav
+- adpcm_a:
     channel: 5
     name: kick
     uri: file://assets/audio/kick.wav
