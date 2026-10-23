@@ -62,6 +62,16 @@ cp "$ROOT/mvs/sample-map.yaml" "$TARGET/assets/sample-map.yaml"
 cp "$ROOT/mvs/music-map.yaml" "$TARGET/assets/music-map.yaml"
 cp "$ROOT/src/game.c" "$ROOT/src/game.h" "$ROOT/src/levels.c" "$ROOT/src/levels.h" "$ROOT/src/characters.c" "$ROOT/src/characters.h" "$TARGET/src/"
 
+# Final Level 1 ground alignment: gameplay floor in the web is y=208.
+"$PYTHON_BIN" - "$TARGET/main.c" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+s=p.read_text()
+s=s.replace('camera_x_fp,GROUND_Y-16);draw_layer(SCB_FOREGROUND', 'camera_x_fp,GROUND_Y);draw_layer(SCB_FOREGROUND')
+p.write_text(s)
+PY
+
 # User-provided title/intro audio. Search common locations automatically.
 INTRO=""
 for p in "$ROOT/reference-packs/intro.mp3" "$ROOT/intro.mp3" "$HOME/Downloads/intro.mp3"; do
@@ -79,14 +89,15 @@ else
   echo "Serve ffmpeg o sox per convertire intro.mp3" >&2; exit 1
 fi
 
-# Generate original arcade-style Level 1 loop and essential gameplay SFX.
+# Deterministic original Level 1 loop + gameplay SFX.
 "$PYTHON_BIN" - "$TARGET/assets/audio" <<'PY'
 import math, wave, struct, random, sys
 from pathlib import Path
 out=Path(sys.argv[1]); sr=22050
+random.seed(0xC35E)
 
-def save(name, samples):
-    m=max(1e-6,max(abs(x) for x in samples)); scale=0.82/m
+def save(name,samples):
+    m=max(1e-6,max(abs(x) for x in samples)); scale=.82/m
     with wave.open(str(out/name),'wb') as w:
         w.setnchannels(1);w.setsampwidth(2);w.setframerate(sr)
         w.writeframes(b''.join(struct.pack('<h',int(max(-1,min(1,x*scale))*32767)) for x in samples))
@@ -94,9 +105,9 @@ def save(name, samples):
 def tone(freq,dur,kind='square',amp=.5):
     n=int(sr*dur);a=[]
     for i in range(n):
-        t=i/sr; s=math.sin(2*math.pi*freq*t)
-        if kind=='square': s=1 if s>=0 else -1
-        elif kind=='tri': s=2/math.pi*math.asin(s)
+        t=i/sr;s=math.sin(2*math.pi*freq*t)
+        if kind=='square':s=1 if s>=0 else -1
+        elif kind=='tri':s=2/math.pi*math.asin(s)
         a.append(s*amp*(1-i/max(1,n)*.08))
     return a
 
@@ -105,17 +116,13 @@ def mix(dst,src,start,g=1):
     if len(dst)<k+len(src):dst.extend([0.0]*(k+len(src)-len(dst)))
     for i,v in enumerate(src):dst[k+i]+=v*g
 
-# 15.5s original arcade/horror loop: minor arpeggio + liscio-like upbeat pulse.
-dur=15.5; music=[0.0]*int(sr*dur)
-notes=[110.00,130.81,164.81,196.00,164.81,130.81,98.00,123.47,146.83,196.00,146.83,123.47]
-step=.25
+dur=15.5;music=[0.0]*int(sr*dur)
+notes=[110.00,130.81,164.81,196.00,164.81,130.81,98.00,123.47,146.83,196.00,146.83,123.47];step=.25
 for k in range(int(dur/step)):
-    f=notes[k%len(notes)];mix(music,tone(f,.19,'square',.20),k*step)
-    mix(music,tone(f*2,.11,'tri',.11),k*step+.125)
-    if k%2==0: mix(music,tone(55,.07,'square',.22),k*step)
+    f=notes[k%len(notes)];mix(music,tone(f,.19,'square',.20),k*step);mix(music,tone(f*2,.11,'tri',.11),k*step+.125)
+    if k%2==0:mix(music,tone(55,.07,'square',.22),k*step)
     if k%4 in (1,3):
-        noise=[(random.random()*2-1)*.10*(1-i/(sr*.045)) for i in range(int(sr*.045))]
-        mix(music,noise,k*step)
+        noise=[(random.random()*2-1)*.10*(1-i/(sr*.045)) for i in range(int(sr*.045))];mix(music,noise,k*step)
 save('level_loop.wav',music)
 save('kick.wav',tone(170,.10,'square',.7)+tone(100,.07,'tri',.4))
 save('hit.wav',tone(85,.15,'square',.8))
@@ -129,10 +136,11 @@ PY
 echo "Preflight ngdevkit tools:"
 "$PYTHON_BIN" "$NGDK_TOOLSDIR/tiletool.py" --help >/dev/null
 "$PYTHON_BIN" -c 'from PIL import Image; import sys; print("  Python",sys.version.split()[0],"+ Pillow OK")'
+"$PYTHON_BIN" -m py_compile "$ROOT/scripts/build-mvs-visual-assets.py" "$ROOT/scripts/build_level1_full.py" "$ROOT/scripts/build_level1_full_v2.py"
 
 echo
 echo "Building Ghosts n Goals FULL LEVEL 1 assets from web reference $UPSTREAM_SHA"
-"$PYTHON_BIN" "$ROOT/scripts/build_level1_full.py" "$UPSTREAM" "$TARGET"
+"$PYTHON_BIN" "$ROOT/scripts/build_level1_full_v2.py" "$UPSTREAM" "$TARGET"
 
 rm -rf "$TARGET/build"
 gmake -C "$TARGET" generate
