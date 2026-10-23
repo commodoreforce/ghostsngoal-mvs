@@ -1,0 +1,25 @@
+# Ghosts'n Goals MVS sound map
+- adpcm_a:
+    channel: 4
+    name: intro
+    uri: file://assets/audio/intro.wav
+- adpcm_a:
+    channel: 5
+    name: kick
+    uri: file://assets/audio/kick.wav
+- adpcm_a:
+    channel: 5
+    name: hit
+    uri: file://assets/audio/hit.wav
+- adpcm_a:
+    channel: 5
+    name: enemy_die
+    uri: file://assets/audio/enemy_die.wav
+- adpcm_a:
+    channel: 5
+    name: boss_hit
+    uri: file://assets/audio/boss_hit.wav
+- adpcm_a:
+    channel: 5
+    name: stage_clear
+    uri: file://assets/audio/stage_clear.wav
