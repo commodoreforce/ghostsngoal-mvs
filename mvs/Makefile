@@ -9,13 +9,14 @@ Z80LDFLAGS=
 
 include config.mk
 
-GAMEROM=ghostngol
-GAMETITLE=Ghosts n Goals
+# Unique cartridge id: never reuse the old ghostngol artifact in MAME.
+GAMEROM=gngl1r1
+GAMETITLE=Ghosts n Goals - Full Level 1 R1
 
 include rom.mk
 
-# 4 x 512 KiB V-ROM banks. The 39.6 s intro plus Level 1 loop/SFX no longer
-# have to fit inside the template's single 512 KiB V-ROM.
+# 4 x 512 KiB V-ROM banks. The user intro plus Level 1 loop/SFX are packed
+# as native Neo Geo ADPCM data instead of relying on host audio.
 VROMTEMPLATE=$(ROM)/$(GAMEROM)-vX.vX
 VROM2=$(ROM)/$(GAMEROM)-v2.v2
 VROM3=$(ROM)/$(GAMEROM)-v3.v3
