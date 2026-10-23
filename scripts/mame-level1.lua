@@ -16,12 +16,35 @@ local cleared_at=nil
 local max_x=0
 local boss_seen={}
 local duck_timer=0
+local palette_checks={}
+local function palette_check(name)
+ if palette_checks[name] then return end
+ local data=palette_sets[name]
+ for i,v in ipairs(data[2]) do
+  if m:read_u16(0x400000+data[1]*32+(i-1)*2)~=v then
+   print('VALIDATION_FAILED palette',name,i);manager.machine:exit();return
+  end
+ end
+ palette_checks[name]=true;print('PALETTE_PASS',name)
+ -- Players stay resident while scene banks change.
+ if name~='PLAYER' and name~='PLAYER_NAKED' then
+  palette_checks.PLAYER=nil;palette_checks.PLAYER_NAKED=nil
+  palette_check('PLAYER');palette_check('PLAYER_NAKED')
+ end
+end
+local scene_names={'SKY','CITY','INSIDE0','INSIDE1'}
+local stadium_names={'STADIUM_BACK','STADIUM_BLEND1','STADIUM_BLEND2','STADIUM_BLEND3','STADIUM_FRONT'}
+local clip_start=nil
 emu.register_frame_done(function()
  f=f+1
  p[':AUDIO_COIN'].fields['Coin 1']:set_value((f>=180 and f<184) and 1 or 0)
  p[':edge:joy:START'].fields['1 Player Start']:set_value((f>=210 and f<216) and 1 or 0)
  if f==170 then manager.machine.screens[':screen']:snapshot(output..'/title.png') end
  if f>230 and u8('lives')>0 then
+  local scene=u8('scene_palette')
+  local stadium=u8('stadium_palette')
+  if scene_names[scene+1] then palette_check(scene_names[scene+1]) end
+  if scene==1 and stadium_names[stadium+1] then palette_check(stadium_names[stadium+1]) end
   local x=s16('player_x')
   if x>max_x then max_x=x end
   if assisted_health then m:write_u8(sym.invuln,120) end
@@ -33,6 +56,10 @@ emu.register_frame_done(function()
   if u8('boss_spawned')>0 and not boss_seen[bossflags] then
    boss_seen[bossflags]=true;print('BOSS_PHASE',f,bossflags,m:read_u8(sym.enemies+2))
    manager.machine.screens[':screen']:snapshot(output..'/boss-'..bossflags..'.png')
+  end
+  if bossflags==2 and not clip_start then clip_start=f end
+  if clip_start and f>=clip_start and f<clip_start+120 and (f-clip_start)%4==0 then
+   manager.machine.screens[':screen']:snapshot(output..string.format('/animation-%02d.png',(f-clip_start)/4))
   end
   if bossflags==2 then duck_timer=30 elseif duck_timer>0 then duck_timer=duck_timer-1 end
   joy['P1 Down']:set_value(duck_timer>0 and 1 or 0)
@@ -69,6 +96,9 @@ emu.register_frame_done(function()
  end
  if cleared_at and f>=cleared_at+150 then
   manager.machine.screens[':screen']:snapshot(output..'/clear.png')
+  for _,name in ipairs({'CITY','INSIDE0','INSIDE1','STADIUM_BACK','STADIUM_BLEND1','STADIUM_BLEND2','STADIUM_BLEND3','STADIUM_FRONT'}) do
+   if not palette_checks[name] then print('VALIDATION_FAILED missing palette',name);manager.machine:exit();return end
+  end
   print('LEVEL1_PASS',max_x,u8('lives'));manager.machine:exit()
  end
  if f>250 and lastlives>0 and u8('lives')==0 then print('GAME_OVER');manager.machine:exit() end

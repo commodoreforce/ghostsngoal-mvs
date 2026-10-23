@@ -78,6 +78,40 @@ def quantize_frames(img:Image.Image,count:int,cell_w:int,cell_h:int,slot_first:i
                 for tx in range(cell_w//16):pmap[ty*tw+tx0+tx]=slot
     out.info['transparency']=0; return out,palettes,pmap
 
+def opaque_quantize_region(crop, transparent):
+    """Allocate all 15 colours to visible pixels, never to the transparent canvas."""
+    rgba=crop.convert('RGBA');alpha=rgba.getchannel('A');rgb=rgba.convert('RGB')
+    pixels=[c[:3] for c in rgba.getdata() if c[3]>=96] if transparent else list(rgb.getdata())
+    sample=Image.new('RGB',(max(1,len(pixels)),1))
+    if pixels:sample.putdata(pixels)
+    palette=sample.quantize(colors=15,method=Image.Quantize.MEDIANCUT,dither=Image.Dither.NONE)
+    colors=base.padded_qpal(palette)
+    palette.putpalette(colors+colors[:3]*241)
+    q=rgb.quantize(palette=palette,dither=Image.Dither.NONE)
+    return q,alpha,[0x8000]+[base.neogeo_color(tuple(colors[i:i+3])) for i in range(0,45,3)]
+
+# The grid and frame quantizers in the imported module use this implementation.
+base.quantize_region=opaque_quantize_region
+
+
+def quantize_animation(img,count,cw,ch,first):
+    """One stable palette per 32px band across a complete enemy animation.
+
+    Palette coherence prevents colour flicker between poses and frees the scene
+    banks for finer background colour regions. Player frame conversion is kept.
+    """
+    out=Image.new('P',img.size,0);out.putpalette(base.neutral_gif_palette())
+    pmap=[0]*((img.width//16)*(img.height//16));palettes=[]
+    for y0 in range(0,ch,32):
+        y1=min(ch,y0+32);q,alpha,pal=opaque_quantize_region(img.crop((0,y0,img.width,y1)),True)
+        palettes.append(pal);slot=first+len(palettes)-1
+        for y in range(y1-y0):
+            for x in range(img.width):out.putpixel((x,y+y0),0 if alpha.getpixel((x,y))<96 else q.getpixel((x,y))+1)
+        for ty in range(y0//16,math.ceil(y1/16)):
+            for tx in range(img.width//16):pmap[ty*(img.width//16)+tx]=slot
+    out.info['transparency']=0
+    return out,palettes,pmap
+
 def c_pal(name,pals):
     rows=["    { "+", ".join(f"0x{x:04x}" for x in p)+" }" for p in pals]; return f"static const unsigned short {name}[{len(pals)}][16] = {{\n"+",\n".join(rows)+"\n};\n"
 def c_u8(name,vals):
@@ -91,12 +125,12 @@ def build(upstream:Path,target:Path):
     sky=fit_background(bgs/'l1_sky.png')
     city=fit_background(bgs/'l1_cesena.png')
     outdoor=sky.copy();outdoor.alpha_composite(city)
-    raw.append(('SKY',sky,False,(4,2),None))
-    raw.append(('CITY',outdoor,False,(4,2),None))
+    raw.append(('SKY',sky,False,(8,7),None))
+    raw.append(('CITY',outdoor,False,(8,7),None))
     back=fit_background(bgs/'l1_stadio_retro.png')
     front=fit_background(bgs/'l1_stadio_ingresso.png')
-    raw.append(('STADIUM_BACK',back,True,(4,2),None))
-    raw.append(('STADIUM_FRONT',front,True,(4,2),None))
+    raw.append(('STADIUM_BACK',back,True,(8,7),None))
+    raw.append(('STADIUM_FRONT',front,True,(8,7),None))
     # Ordered dissolve replaces architecture in place, without a black rectangle.
     order=((0,8,2,10),(12,4,14,6),(3,11,1,9),(15,7,13,5))
     for step in range(1,4):
@@ -104,25 +138,53 @@ def build(upstream:Path,target:Path):
         for y in range(mixed.height):
             for x in range(mixed.width):
                 if order[y%4][x%4]<step*4:mp[x,y]=fp[x,y]
-        raw.append((f'STADIUM_BLEND{step}',mixed,True,(4,2),None))
+        raw.append((f'STADIUM_BLEND{step}',mixed,True,(8,7),None))
     for name in ('INSIDE0','INSIDE1'):
         inside=fit_background(bgs/(name.lower().replace('inside','l1_inside')+'.png'))
         # Preserve transparent roof openings: sky and the Rocca remain behind them.
         composite=sky.resize(inside.size,Image.Resampling.NEAREST)
         composite.alpha_composite(city,(20,-30));composite.alpha_composite(inside)
-        raw.append((name,composite,False,(4,2),None))
+        raw.append((name,composite,False,(12,7),None))
     # World layers use tiny fixed palettes: they are deliberately authored in only a few colours.
     raw.append(('GROUND',make_world_ground(),True,(4,1),None)); raw.append(('FG_CEMETERY',scenery(level,WORLD_W),True,(8,2),None))
     actor_defs=[('PLAYER',spr/'pl_shpendi_base.png',manifest['shpendi']),('PLAYER_NAKED',spr/'pl_shpendi_naked.png',manifest['shpendi']),('ZOMBIE',spr/f"{enemies['zombie']['sheet']}.png",enemies['zombie']),('BAT',spr/f"{enemies['bat']['sheet']}.png",enemies['bat']),('PUMPKIN',spr/f"{enemies['pumpkin']['sheet']}.png",enemies['pumpkin']),('GHOST',spr/f"{enemies['ghost']['sheet']}.png",enemies['ghost']),('MAZ',spr/f"{enemies['mazapegul']['sheet']}.png",enemies['mazapegul'])]
     actor_meta={}
     for name,path,meta in actor_defs:
         im=Image.open(path).convert('RGBA'); count=len(meta['frames']); fw=int(meta['frameWidth']); fh=int(meta['frameHeight']); sheet,cw,ch=frame_sheet(im,fw,fh,count); actor_meta[name]=(meta,sheet,cw,ch); raw.append((name,sheet,True,None,(count,cw,ch)))
-    raw.append(('BALL',base.make_ball(),True,None,None))
+    ball=base.make_ball();spin=Image.new('RGBA',(64,16))
+    # Spin the leather patches in logical space; keep the ball's silhouette fixed.
+    patches=[(x,y) for y in range(16) for x in range(16) if ball.getpixel((x,y))==(20,20,24,255)]
+    for i in range(4):
+        frame=ball.copy()
+        for x,y in patches:frame.putpixel((x,y),(244,244,240,255))
+        for x,y in patches:
+            dx,dy=(x-7.5)/1.25,y-7.5
+            for _ in range(i):dx,dy=-dy,dx
+            px,py=round(dx*1.25+7.5),round(dy+7.5)
+            if frame.getpixel((px,py))[3]:frame.putpixel((px,py),(20,20,24,255))
+        spin.alpha_composite(frame,(i*16,0))
+    raw.append(('BALL',spin,True,None,(4,16,16)))
+    fxmeta=enemies['mazfx'];fx,cw,ch=frame_sheet(Image.open(spr/(fxmeta['sheet']+'.png')),28,24,5)
+    actor_meta['MAZFX']=(fxmeta,fx,cw,ch)
+    raw.append(('MAZFX',fx,True,None,(5,cw,ch)))
     # Native equivalents of the procedural web mazfx/shoe and wave textures.
-    shoe=Image.new('RGBA',(18,24));ImageDraw.Draw(shoe).rectangle((3,6,14,17),fill='#8a8aa6')
     wave=Image.new('RGBA',(10,22));wd=ImageDraw.Draw(wave)
     for k in range(3):wd.rectangle((k*3,2+k*2,k*3+1,19-k*2),fill='#ffffff' if k==0 else '#9fe8ff')
-    raw.append(('SHOE',shoe,True,None,None));raw.append(('WAVE',wave,True,None,None))
+    raw.append(('WAVE',wave,True,None,None))
+    # Native impact/dust flipbook, matching the web's small pixel particles.
+    particles=Image.new('RGBA',(128,16))
+    pd=ImageDraw.Draw(particles)
+    for frame in range(4):
+        cx=frame*16+8;radius=2+frame*2
+        for dx,dy in ((-1,0),(1,0),(0,-1),(0,1),(-1,-1),(1,-1),(-1,1),(1,1)):
+            x=cx+dx*radius;y=8+dy*radius
+            pd.rectangle((x,y,x+1,y+1),fill='#fff4c0' if frame<2 else '#e8a84a')
+        if frame<2:pd.rectangle((cx-1,7,cx+1,9),fill='#ffffff')
+        cx=(frame+4)*16+8
+        for dx,dy in ((-1,0),(1,0),(-1,-1),(1,-1),(0,-1)):
+            x=cx+dx*(2+frame*2);y=12+dy*(frame+1)
+            pd.rectangle((x,y,x+1,y+1),fill='#9a8a7a' if frame<2 else '#615560')
+    raw.append(('PARTICLES',particles,True,None,(8,16,16)))
     weather=Image.new('RGBA',(16,16))
     wd=ImageDraw.Draw(weather)
     for k in range(6):wd.point((8-k//3,k+3),fill=(55+k*5,61+k*5,86+k*6,255))
@@ -134,7 +196,7 @@ def build(upstream:Path,target:Path):
         td.text((x+2,y+2),text,font=font,fill='#160b16',stroke_width=3,stroke_fill='#160b16')
         td.text((x,y),text,font=font,fill=color,stroke_width=2,stroke_fill='#5a1a00')
     raw.append(('TITLE',title,True,None,None))
-    tile_cursor=CROM_BASE_TILE; pal_cursor=3; # FIX text owns palettes 0, 1 and 2.
+    tile_cursor=CROM_BASE_TILE; pal_cursor=148; # FIX text owns palettes 0, 1 and 2.
     built=[]
     class A:pass
     for name,rgba,transparent,grid,actor in raw:
@@ -143,11 +205,19 @@ def build(upstream:Path,target:Path):
         else:lw=(actor[1]*X_DEN//X_NUM)*actor[0]
         if rgba.width%16 or rgba.height%16:
             pad=Image.new('RGBA',(((rgba.width+15)//16)*16,((rgba.height+15)//16)*16),(0,0,0,0)); pad.alpha_composite(rgba,(0,0)); rgba=pad
-        if actor:indexed,pals,pmap=quantize_frames(rgba,actor[0],actor[1],actor[2],pal_cursor)
-        elif grid:indexed,pals,pmap=base.quantize_grid(rgba,transparent,pal_cursor,*grid)
-        else:indexed,pals,pmap=base.quantize_single(rgba,transparent,pal_cursor)
-        if pal_cursor+len(pals)>256:raise ValueError(f"palette budget exceeded at {name}: {pal_cursor}+{len(pals)}")
-        fn='gng_'+name.lower()+'.gif'; base.save_indexed(indexed,ad/fn,transparent); a=A();a.name=name;a.filename=fn;a.tile_base=tile_cursor;a.cols=rgba.width//16;a.rows=rgba.height//16;a.width=rgba.width;a.height=rgba.height;a.logical_width=lw;a.pal_first=pal_cursor;a.palettes=pals;a.palmap=pmap;built.append(a);tile_cursor+=a.cols*a.rows;pal_cursor+=len(pals)
+        # Background banks are mutually exclusive and uploaded on scene changes.
+        # A: sky/city/interior, slots 3..98. B: stadium, slots 99..147.
+        first=3 if name in ('SKY','CITY','INSIDE0','INSIDE1') else 99 if name.startswith('STADIUM_') else pal_cursor
+        if actor:
+            quantizer=quantize_frames if name.startswith('PLAYER') else quantize_animation
+            indexed,pals,pmap=quantizer(rgba,actor[0],actor[1],actor[2],first)
+        elif grid:indexed,pals,pmap=base.quantize_grid(rgba,transparent,first,*grid)
+        else:indexed,pals,pmap=base.quantize_single(rgba,transparent,first)
+        if first+len(pals)>256:raise ValueError(f"palette budget exceeded at {name}: {pal_cursor}+{len(pals)}")
+        fn='gng_'+name.lower()+'.gif'; base.save_indexed(indexed,ad/fn,transparent); a=A();a.name=name;a.filename=fn;a.tile_base=tile_cursor;a.cols=rgba.width//16;a.rows=rgba.height//16;a.width=rgba.width;a.height=rgba.height;a.logical_width=lw;a.pal_first=first;a.palettes=pals;a.palmap=pmap;built.append(a);tile_cursor+=a.cols*a.rows
+        if first>=148:pal_cursor+=len(pals)
+        elif first==3 and len(pals)>96:raise ValueError('Scene bank A overflow')
+        elif first==99 and len(pals)>49:raise ValueError('Scene bank B overflow')
     # Each C-ROM pair encodes 128 bytes per tile (64 bytes per chip).
     # Fail before Makefile truncate could silently remove generated graphics.
     if tile_cursor*64 > 2097152:

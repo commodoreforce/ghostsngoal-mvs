@@ -26,6 +26,8 @@ with zipfile.ZipFile(bundle) as archive:
         if hashlib.sha256(data).hexdigest()!=digest:
             sys.exit(f'Checksum non valido: {name}')
         target=destination/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(data)
+info=json.loads((destination/'build-info.json').read_text())
+print(f"Cartuccia gngl1r1 | VISUAL REVISION {info.get('visual_revision', 1)} | sorgenti {info['source_commit'][:8]}",flush=True)
 mame=os.environ.get('MAME','mame')
 if not shutil.which(mame):
     sys.exit('MAME non trovato. Su Mac: brew install mame')

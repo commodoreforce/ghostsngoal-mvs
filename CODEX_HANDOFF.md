@@ -114,3 +114,43 @@ Remaining: interior entry cut; baked sky/city relative parallax approximation;
 no full fog/lightning/foreground silhouette treatment; existing pickup/crate/
 power and enemy-AI parity gaps. Shpendi/enemy sheets were not redrawn. Continue
 native visual polish and sprite/scanline profiling before claiming stability.
+
+## Current visual revision 3 (supersedes revision 2)
+
+Mandatory marker is now VISUAL REVISION 3. Fixed cart ID remains gngl1r1.
+The launcher prints the visual revision/source commit from verified build-info.
+
+Palette allocation changed fundamentally:
+- Scene bank A slots 3..98: SKY, CITY or INSIDE0/1 (mutually exclusive).
+- Scene bank B slots 99..147: one rear/front/dissolve stadium plane.
+- Resident assets start at 148. Player retains per-frame palettes; enemy
+  animation shares one palette per 32px band across all frames. End slot254.
+- init_palettes only uploads residents. select_scene_palette and
+  select_stadium_palette upload scene banks when needed; cache IDs are committed
+  **after** the upload completes. Never load every background into these banks.
+- Background quantization uses 49 exterior/84 interior regional palettes; only
+  opaque pixels train transparent-asset palettes. No saturation filter is used.
+- layer_columns[84] caches immutable tilemap column IDs (tile base + source
+  column). Fine scrolling updates SCB position, not all tile data. Reset this
+  cache in init_palettes after BIOS changes. These slots cannot be overwritten
+  by draw_actor without invalidating the corresponding cache entries.
+
+Native visual feedback: source MAZFX shoe/laugh sheets, four ball spin frames,
+8 transient impact/dust sprites SCB284..291 (all hidden at gameplay exit).
+Landing dust observes grounding; player movement/collisions remain unchanged.
+Bat wings follow 0/1/2/1 at10fps; zombie walk5fps, ghost4fps, boss walk~7fps.
+No new hand-drawn enemy poses were created. Existing AI limitations remain.
+
+Validation: full clean build and current-chip/hash verification; 50,123 host
+frames; all16 native fixture checks; default input-only playthrough reached
+stage clear score12,900 with2 lives, checkpoint and all13 waves; native intro
+correlation0.97888. The fair traversal additionally reads palette RAM for all8
+scene/dissolve selections and both resident player sheets. Packaging requires
+these PALETTE_PASS markers. Thirty real MAME frames form the published GIF.
+
+First experimental palette bank build missed frames and failed traversal;
+column caching fixed the redraw cost. Do not remove this optimization while
+keeping dynamic palettes. Earlier failed evidence is not release proof.
+The current report docs/validation/visual-revision3-colors.json measures lower
+source RGB error for all5 compared backgrounds, with estimated six-bit decoding.
+Readability, full visual parity and extended hardware stability remain open.

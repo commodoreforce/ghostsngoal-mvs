@@ -39,7 +39,7 @@ $(BUILDDIR)/main.o: $(SOUND_COMMANDS)
 $(SROM1): $(BUILDDIR)/assets/base-srom-text-shadow.fix
 
 # FULL LEVEL 1 C-ROM order. MUST match scripts/build_level1_full.py.
-GNG_GFX=sky city stadium_back stadium_front stadium_blend1 stadium_blend2 stadium_blend3 inside0 inside1 ground fg_cemetery player player_naked zombie bat pumpkin ghost maz ball shoe wave rain title
+GNG_GFX=sky city stadium_back stadium_front stadium_blend1 stadium_blend2 stadium_blend3 inside0 inside1 ground fg_cemetery player player_naked zombie bat pumpkin ghost maz ball mazfx wave particles rain title
 $(CROM1): $(BUILDDIR)/assets/base-crom-logo.c1 $(GNG_GFX:%=$(BUILDDIR)/assets/gng_%.c1)
 $(CROM2): $(BUILDDIR)/assets/base-crom-logo.c2 $(GNG_GFX:%=$(BUILDDIR)/assets/gng_%.c2)
 

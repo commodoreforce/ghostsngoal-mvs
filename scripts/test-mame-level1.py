@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -28,7 +29,7 @@ for line in subprocess.check_output(['m68k-neogeo-elf-nm', '--defined-only', str
 names = ['player_x', 'player_y', 'player_ground', 'player_x_fp', 'lives', 'frame_counter',
          'stage_clear', 'score', 'checkpoint_reached', 'boss_spawned', 'wave_mask',
          'invuln', 'camera_x', 'player_vy_fp', 'enemies', 'armored', 'balls',
-         'hazards', 'player_y_fp', 'player_vx_fp', 'drop_timer', 'bios_user_mode']
+         'hazards', 'player_y_fp', 'player_vx_fp', 'drop_timer', 'bios_user_mode', 'scene_palette', 'stadium_palette']
 level = read_level(args.reference.resolve())
 solids = [(b['x']*16, b['row']*16, b['w']*16) for b in level['blocks']]
 solids += [(g*16,192,16) for g in level['graves']]
@@ -39,6 +40,16 @@ preamble += 'local solids={' + ','.join('{'+','.join(map(str,b))+'}' for b in so
 preamble += f'local output={json.dumps(str(output))}\nlocal assisted_health={str(args.assist_health).lower()}\n'
 script = output/'level.lua'
 body = 'mame-level1.lua' if args.scenario == 'level1' else 'mame-checks.lua'
+# Real palette RAM checks catch incorrect scene-bank reuse, not just correct assets.
+header=(project/'src/level1_assets.h').read_text()
+sets={}
+for name in ('SKY','CITY','INSIDE0','INSIDE1','STADIUM_BACK','STADIUM_BLEND1','STADIUM_BLEND2','STADIUM_BLEND3','STADIUM_FRONT','PLAYER','PLAYER_NAKED'):
+    prefix='GNG_'+name
+    first=int(re.search(r'#define '+prefix+r'_PAL_FIRST (\d+)',header)[1])
+    block=re.search(prefix+r'_PALETTES\[.*?= \{(.*?)\n\};',header,re.S)[1]
+    colors=[int(x,16) for x in re.findall(r'0x[0-9a-f]+',block)]
+    sets[name]=(first,colors)
+preamble+='local palette_sets={' + ','.join(name+'={'+str(first)+',{'+','.join(map(str,colors))+'}}' for name,(first,colors) in sets.items()) + '}\n'
 script.write_text(preamble + (root/'scripts'/body).read_text())
 command = [os.environ.get('MAME', 'mame'), 'neogeo', '-cart1', 'gngl1r1',
            '-hashpath', str(project/'build/rom'), '-rompath', str(project/'build/rom'),

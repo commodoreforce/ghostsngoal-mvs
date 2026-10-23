@@ -1,0 +1,70 @@
+{
+  "decoder": "packed Neo Geo six-bit RGB approximation",
+  "assets": {
+    "CITY": {
+      "revision2": {
+        "rgb_mse": 9.883,
+        "visible_colors": 37,
+        "palettes": 8
+      },
+      "revision3": {
+        "rgb_mse": 7.701,
+        "visible_colors": 53,
+        "palettes": 49
+      }
+    },
+    "STADIUM_BACK": {
+      "revision2": {
+        "rgb_mse": 34.044,
+        "visible_colors": 50,
+        "palettes": 8
+      },
+      "revision3": {
+        "rgb_mse": 15.153,
+        "visible_colors": 84,
+        "palettes": 49
+      }
+    },
+    "STADIUM_FRONT": {
+      "revision2": {
+        "rgb_mse": 346.93,
+        "visible_colors": 59,
+        "palettes": 8
+      },
+      "revision3": {
+        "rgb_mse": 21.771,
+        "visible_colors": 78,
+        "palettes": 49
+      }
+    },
+    "INSIDE0": {
+      "revision2": {
+        "rgb_mse": 121.642,
+        "visible_colors": 92,
+        "palettes": 8
+      },
+      "revision3": {
+        "rgb_mse": 52.55,
+        "visible_colors": 310,
+        "palettes": 84
+      }
+    },
+    "INSIDE1": {
+      "revision2": {
+        "rgb_mse": 121.45,
+        "visible_colors": 82,
+        "palettes": 8
+      },
+      "revision3": {
+        "rgb_mse": 52.908,
+        "visible_colors": 293,
+        "palettes": 84
+      }
+    }
+  },
+  "baseline_header_sha256": "fe3a366503a9db2ad09f5be11859d2728289b876a55216010650249bfc80ce29",
+  "current_header_sha256": "00748abcc59e75feb38d88f8a1a84434db33b2b87b25569fd169faef9b9d09c3",
+  "baseline_source_commit": "c2cb46c53718f917599064403083750b76cdd1b0",
+  "reference_commit": "7d6d995aa32a6a3df23d23ca857852f85bdc99c2",
+  "cartridge_sha256": "96ffc007fee7c0678a5e870abf37533a30a2740aa9de0dd0eb855e7f37700194"
+}

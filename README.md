@@ -25,7 +25,36 @@ built-in hashes. MAME reports warnings about **BIOS** files `sp-s2.sp1`,
 `sm1.sm1` and `sfix.sfix`; the cartridge has its own checked software-list
 CRC/SHA1 hashes. The bundle includes BIOS source/license references.
 
-## Visual revision 2
+## Current: visual revision 3
+
+Update with `git pull --ff-only origin main`, then launch as above. The title
+and launcher identify **VISUAL REVISION 3**. The checked-in bundle is rebuilt
+and validated; no local toolchain or compilation is necessary.
+
+- Background conversion now uses 49 local palettes per exterior and 84 per
+  interior, rather than eight. Two mutually exclusive scene banks keep within
+  the Neo Geo's 256 palettes, with players always resident. Visible interior
+  colour counts rise from 92/82 to 310/293 in the converted artwork.
+- Transparent pixels no longer consume actor colours or darken opaque edges.
+  Enemy animation bands share palettes across poses to avoid colour pumping.
+- Bats use the source 0/1/2/1 wing cycle; zombie, ghost and boss walking cadence
+  follow the source animation rates more closely. Player movement is unchanged.
+- Rotating ball, native source shoe/laugh effects, impact sparks and landing
+  dust add motion and hit/landing feedback without changing collision rules.
+- Immutable scenery columns are cached; fine scrolling updates position only.
+  This removes repeated full tilemap uploads and leaves time for scene palettes.
+
+[Actual MAME animation](releases/visual-revision3.gif) ·
+[Colour comparison against the source](docs/validation/visual-revision3-colors.json).
+The colour comparison uses the same approximate hardware RGB decoder for both
+revisions; it measures conversion fidelity, not artistic quality or CRT output.
+MAME validation also reads back every scene palette and resident player palette.
+
+This is still a graphics improvement milestone. Fog/lightning, full foreground
+composition, interior-entry transition and source animation/AI parity need more
+work. The revision reuses source animation drawings; it does not add new poses.
+
+## Previous visual revision 2
 
 The prebuilt release now shows **VISUAL REVISION 2** on the title screen.
 It includes the original Press Start font as native title graphics, animated
