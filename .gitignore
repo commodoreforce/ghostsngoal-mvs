@@ -3,3 +3,6 @@
 /.ghostsngoal-upstream/
 /.venv-ngdevkit/
 __pycache__/
+/cfg/
+/nvram/
+/snap/

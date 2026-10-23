@@ -1,62 +1,86 @@
 # Cloud build workflow
 
-Use the existing isolated checkout; do not create another worktree.
-Read AGENTS.md and CODEX_HANDOFF.md before editing. The web reference is
-read-only, pinned to `7d6d995aa32a6a3df23d23ca857852f85bdc99c2`.
+Use the existing isolated checkout; do not create another worktree. Read
+AGENTS.md and CODEX_HANDOFF.md before editing. The web reference is READ-ONLY
+at `7d6d995aa32a6a3df23d23ca857852f85bdc99c2`.
 
-The preparation script supports Linux ngdevkit installations discovered by
-pkg-config and macOS Homebrew. Required tools are Python >= 3.12, ngdevkit
-0.5 with its 68000/Z80 toolchain, pkg-config, autotools, GNU make, rsync,
-zip, ImageMagick, sox and ffmpeg. MAME is required for runtime validation.
-For a relocated SDK, set PATH and PKG_CONFIG_PATH to its bin and
-lib/pkgconfig directories. Do not disable signature, checksum or TLS checks.
-
-Run from the repository root:
+## Installed workflow
 
 ```sh
+cd /workspace/ghostsngoal-mvs
+bash scripts/bootstrap-ngdevkit-linux.sh
+. scripts/activate-cloud-toolchain.sh
 make test
-GNG_UPSTREAM=/workspace/ghostsngoal-reference bash scripts/run-full-level1-r1.sh --build-only
-# With MAME/display available, omit --build-only to build, verify and launch.
+bash scripts/run-full-level1-r1.sh --build-only
 ```
 
-GNG_UPSTREAM can point to an existing clean reference checkout at the pinned
-commit. Existing reference checkouts are never fetched/reset/checked out by
-preparation. If unset, preparation creates a private reference clone.
-GNG_PYTHON can select Python. GNG_INTRO can select the original intro MP3;
-otherwise local user files take precedence, then the web intro master.
+Bootstrap installs under `/workspace/tools` without root. It verifies the
+ngdevkit PPA InRelease signature against public key
+`DEBA216533CA9B75C79CB44931B8B6160C6BAA4A`, then the package-index and package
+SHA256 checksums. Debian dependencies use the system Debian archive keyring.
+Signature, artifact checksum and TLS checks stay enabled. Re-running bootstrap
+reuses matching packages and refreshes extracted tools and wrappers.
+
+The SDK/toolchain and dependency trees are installation caches, not project
+checkouts. Z80 wrappers and autotools need the activation script after
+restoring an environment. No persistent server or emulator process is needed.
+
+Versions verified here: ngdevkit 0.5, GCC 15.3.0, MAME 0.276. Python >= 3.12 is
+required, with Pillow 12.3.0, ruamel.yaml 0.18.16 and PyYAML 6.0.3.
 ngdevkit-examples is pinned to `4e7900b79b1555f9f1737549a49c26fbdb1aa589`.
-Preparation rejects an existing examples checkout at a different commit.
+The preparation script also supports a Homebrew ngdevkit installation.
 
-The intro and generated WAVs use 18500 Hz, matching ngdevkit's ADPCM-A
-convention. The hardware has a fixed playback rate; vromtool encodes PCM
-without resampling, so 22050 Hz sources played too slowly and at lower pitch.
+`GNG_UPSTREAM` defaults to `/workspace/ghostsngoal-reference` after cloud
+activation. Existing reference checkouts must be clean and pinned; preparation
+never fetches, resets or checks them out. A missing private reference clone can
+be created during preparation. `GNG_PYTHON` selects Python; `GNG_INTRO` can
+select the user's intro MP3. Local user files take precedence over the pinned
+web intro master.
 
-The launcher rebuilds a freshly prepared project, checks runtime markers,
-compares the cartridge ZIP with every chip and the MAME CRC/SHA1 list, and
-recreates P1 from the current ELF to reject mixed/stale artifacts. It writes
-`build/verified-rom-sha256.json` only after those checks pass. This verifies
-artifact consistency, not gameplay or graphical correctness.
+## Build and runtime checks
 
-## Current instance evidence (2026-10-23)
+The launcher prepares a fresh generated project, runs graphics/audio
+generation, compiles 68000 and Z80, creates `gngl1r1.zip`, and checks
+ELF -> word-swapped P1 -> ZIP/chips -> MAME software-list CRC/SHA1. Its output
+is `.ngdevkit-examples/ghostsngoal-mvs/build/verified-rom-sha256.json`.
 
-- Host core: `make test` passed, 50123 frames. This does not execute mvs/main.c.
-- All 15 graphics asset banks generated and converted with tiletool.
-  Each C-ROM needs 725248 bytes including the template logo reservation,
-  below the 2097152-byte capacity. Palette use: 168/255.
-- Seven C/Z80 sound commands and four 512 KiB native ADPCM V-ROMs generated
-  using ngdevkit sources at `5106cbd1414a86ba02810ee93ac977be3360de4f`.
-- Host C syntax validation of mvs/main.c against those SDK/generated headers
-  passed. This is not 68000 compilation or Z80 linking.
-- ROM verifier checks passed on synthetic fixtures, including rejection of a
-  corrupted chip and a stale P1. These are not MVS runtime tests.
-- Full launcher rerun stops at missing ngdevkit pkg-config/toolchain.
-- Official PPA metadata was reachable, but retrieval of its signing key from
-  keyserver.ubuntu.com returned proxy HTTP 403. No unverified package was used.
-  Network destinations were saved in the environment draft; apply/review and
-  publish through environment settings before retrying installation.
-- MAME is absent. No final cartridge, emulator boot, playthrough, audio
-  playback, visual quality, or successful end-to-end ROM verifier run is claimed.
+Run these from the repository after activation:
 
-Toolchain installation and complete MAME validation remain required. The
-gameplay still differs from the web version (including missing blocks/planks
-and a simplified boss); the Level 1 milestone is not complete.
+```sh
+python3 scripts/test-mame-level1.py --pluginspath /workspace/tools/debian/usr/share/games/mame/plugins
+python3 scripts/test-mame-level1.py --scenario checks --pluginspath /workspace/tools/debian/usr/share/games/mame/plugins
+python3 scripts/test-mame-audio.py --pluginspath /workspace/tools/debian/usr/share/games/mame/plugins
+```
+
+Each invocation creates a unique evidence directory under the generated
+project's `build/`. JSON records the exact cartridge SHA256 and whether health
+assistance was used. The default traversal uses only coin/controller inputs;
+it checks checkpoint, all 13 wave flags, boss defeat and stage clear and saves
+screenshots at multiple camera positions. `--assist-health` is a separate,
+explicit diagnostic mode and is not accepted as release playthrough evidence.
+
+The `checks` scenario explicitly arranges native RAM fixtures for hits, pits
+and platform positions, then exercises actual cartridge code. It validates
+aimed shots, the ball cap, armor, death/checkpoint, walls/planks, game over and
+a second coin/start cycle. Those fixtures do not count as a fair playthrough.
+
+The audio check records MAME's own YM2610 output at cold boot and compares it
+against the intro PCM. A Z80 command-0 readiness probe prevents the first intro
+request being lost during driver initialization. ADPCM-A sources are 18500 Hz;
+vromtool does not resample 22050 Hz sources for the fixed-rate hardware.
+
+MAME runs headlessly for automated checks. The bundled open ngdevkit BIOS
+causes expected warnings against SNK BIOS hashes; cartridge hashes are checked
+separately. Interactive playback uses `python3 scripts/play-mame.py` with MAME
+and a display. Do not present localhost previews.
+
+## Packaging
+
+After committing the tested source, `python3 scripts/package-mame.py` requires
+matching passing unassisted traversal, functional checks and audio evidence for
+the current cartridge. It checks canonical/generated sources and packages ROM,
+software list, open BIOS, licenses, source commit and evidence. Commit the
+resulting release ZIP and SHA256 separately. Rebuilding changes the ZIP digest;
+rerun validation before packaging a new artifact.
+
+See README.md and CODEX_HANDOFF.md for remaining gameplay/presentation work.

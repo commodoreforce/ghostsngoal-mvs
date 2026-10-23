@@ -1,61 +1,66 @@
-# Ghosts 'n Goals — Neo Geo MVS / MAME Port
+# Ghosts 'n Goals — Neo Geo MVS
 
-Dedicated arcade port of **Ghosts 'n Goals** for **Neo Geo MVS**, with the final goal of producing a stable, fully playable ROM set for MAME.
+Native 68000/Z80 port of `commodoreforce/ghostsngoal`. The web repository is a
+read-only gameplay and art reference, pinned to
+`7d6d995aa32a6a3df23d23ca857852f85bdc99c2`.
 
-## Repository policy
+## Play the prebuilt milestone
 
-- `commodoreforce/ghostsngoal` = web version / reference source only
-- `commodoreforce/ghostsngoal-mvs` = writable Neo Geo / MAME port
-- The web repository is never modified by this project.
+Install MAME (on macOS: `brew install mame`), then run from this checkout:
 
-## Target
+```sh
+python3 scripts/play-mame.py
+```
 
-A real early-1990s-style coin-op game, not a browser wrapper:
+The launcher verifies and extracts `releases/gngl1r1-r1.zip`. Development tools
+are not needed to play it. Controls with MAME's default keyboard mapping:
 
-- Motorola 68000 gameplay code
-- Neo Geo C-ROM sprite/tile graphics
-- S-ROM FIX layer for HUD/title/high scores
-- Z80 + ADPCM audio
-- MVS coin/start/service flow
-- attract mode
-- persistent high score
-- MAME validation and soak testing
+- `5`: insert coin; `1`: start.
+- Arrow keys: move; `Ctrl`: jump; `Alt`: shoot.
+- Up + shoot: diagonal upward; down + shoot in the air: diagonal downward.
+- Down: crouch; down + jump on a plank: drop through.
 
-## Arcade design direction
+The included free ngdevkit BIOS differs from the SNK BIOS images in MAME's
+built-in hashes. MAME reports warnings about **BIOS** files `sp-s2.sp1`,
+`sm1.sm1` and `sfix.sfix`; the cartridge has its own checked software-list
+CRC/SHA1 hashes. The bundle includes BIOS source/license references.
 
-The ball is the weapon and the identity of the game. The core loop is:
+## Build
 
-**MOVE → CREATE SPACE → KICK → REBOUND → KILL → ADVANCE → BOSS**
+On macOS, install prerequisites with `scripts/bootstrap-ngdevkit-macos.sh`.
+The Linux cloud image supports a rootless, signature-verified setup:
 
-Controls are intentionally arcade-first:
+```sh
+bash scripts/bootstrap-ngdevkit-linux.sh
+. scripts/activate-cloud-toolchain.sh
+```
 
-- Joystick: movement
-- A: jump
-- B: kick
+Then build the cartridge from canonical sources and pinned web assets:
 
-Difficulty must come from enemy combinations and timing, not slippery controls.
+```sh
+make test
+bash scripts/run-full-level1-r1.sh --build-only
+```
 
-## Current milestone
+Omit `--build-only` to build, verify and launch MAME. `GNG_UPSTREAM` may point
+to an existing clean reference checkout at the pinned commit. See
+[cloud setup](docs/CLOUD_SETUP.md) for tool activation and validation.
 
-`Arcade Core v0.8`
+## R1 scope
 
-Implemented in the hardware-independent core:
+The native runtime includes the title, original intro as YM2610 ADPCM-A,
+4192-pixel world, finite scenery, stone blocks, one-way planks, Shpendi with
+armor loss, zombie/bat/pumpkin/ghost waves, three ball projectiles, rebounds,
+lives, pits, checkpoint and score. Mazapegùl has 32 HP, telegraphed throws,
+laugh waves, jumps/shockwaves and two rewind phases. Defeat triggers stage
+clear and a walk toward the final world section.
 
-- boot / attract / title / play / boss / clear / game-over / high-score state machine
-- MVS-style credits
-- 3 lives
-- deterministic 60 Hz gameplay model
-- movement, jump and kick
-- ball physics and rebounds
-- zombie / bat / pumpkin behaviour framework
-- Mazapegùl boss pattern
-- Azdora boss pattern
-- two-stage progression framework
-- score / high score
-- long-run fuzz test
+The release includes MAME evidence for an input-only playthrough, targeted
+native gameplay checks and a cold-boot recording compared with the intro
+source. Artifact validation compares the ELF-derived P1, ROM chips, cartridge
+ZIP and MAME hashes; generated SHA256 manifests identify the exact build.
 
-The next milestone is the **Neo Geo hardware adapter** and exact parity with the current web game's content/assets.
-
-## Stable release definition
-
-The project is not considered finished until it passes the checklist in `docs/STABLE_GATE.md`, including a complete playthrough, repeated credit/start cycles and a long MAME soak test.
+This is a playable Level 1 milestone, not final web parity. Collectible items,
+breakable crates, powers, weather/fog/fade effects and parts of enemy AI still
+differ or are absent. The release has not completed the production soak and
+all gates in [STABLE_GATE.md](docs/STABLE_GATE.md).

@@ -8,6 +8,7 @@ import math
 import sys
 from pathlib import Path
 from PIL import Image, ImageDraw
+from level1_geometry import read_level, scenery, c_geometry
 
 HERE = Path(__file__).resolve().parent
 BASE_PATH = HERE / "build-mvs-visual-assets.py"
@@ -25,22 +26,6 @@ WORLD_W = 262 * 16
 X_NUM, X_DEN = 5, 4
 CROM_BASE_TILE = 256
 GROUND_SPANS = [(0,34),(36,58),(60,96),(98,152),(155,196),(199,262)]
-
-def cemetery_motif() -> Image.Image:
-    W=512; im=Image.new("RGBA",(W,224),(0,0,0,0)); d=ImageDraw.Draw(im); c=(0x06,0x04,0x0a,255)
-    for x in range(60,120,8):
-        d.rectangle((x,194,x+1,223),fill=c); d.rectangle((x-1,190,x+2,193),fill=c); d.rectangle((x,188,x+1,189),fill=c)
-    d.rectangle((56,200,121,201),fill=c)
-    for k in range(7):
-        x=330+k*5; y=200-(k%3)*8; d.rectangle((x,y,x+1,223),fill=c)
-        x2=326+k*6; y2=196-(k%2)*6; d.rectangle((x2,y2,x2+5,y2+1),fill=c)
-    d.rectangle((440,178,443,223),fill=c); d.rectangle((432,186,451,189),fill=c)
-    return im
-
-def make_world_foreground() -> Image.Image:
-    motif=cemetery_motif(); out=Image.new("RGBA",(WORLD_W,224),(0,0,0,0))
-    for x in range(0,WORLD_W,512): out.alpha_composite(motif,(x,0))
-    return out
 
 def make_world_ground() -> Image.Image:
     out=Image.new("RGBA",(WORLD_W,32),(0,0,0,0)); d=ImageDraw.Draw(out)
@@ -89,19 +74,26 @@ def c_u8(name,vals):
 
 def build(upstream:Path,target:Path):
     public=upstream/'game'/'public'; bgs=public/'backgrounds'; spr=public/'sprites'; ad=target/'assets'; sd=target/'src'; ad.mkdir(parents=True,exist_ok=True); sd.mkdir(parents=True,exist_ok=True)
+    level=read_level(upstream)
     manifest=json.loads((spr/'manifest.json').read_text()); enemies=json.loads((spr/'enemies.json').read_text())
     raw=[]
     # 8 regional palettes per painted backdrop: enough colour depth without exhausting 256 hardware slots.
     for name,fn,transparent in [('SKY','l1_sky.png',False),('CITY','l1_cesena.png',True),('STADIUM_BACK','l1_stadio_retro.png',True),('STADIUM_FRONT','l1_stadio_ingresso.png',True),('INSIDE0','l1_inside0.png',False),('INSIDE1','l1_inside1.png',False)]:
         raw.append((name,fit_background(bgs/fn),transparent,(4,2),None))
     # World layers use tiny fixed palettes: they are deliberately authored in only a few colours.
-    raw.append(('GROUND',make_world_ground(),True,None,None)); raw.append(('FG_CEMETERY',make_world_foreground(),True,None,None))
-    actor_defs=[('PLAYER',spr/'pl_shpendi_base.png',manifest['shpendi']),('ZOMBIE',spr/f"{enemies['zombie']['sheet']}.png",enemies['zombie']),('BAT',spr/f"{enemies['bat']['sheet']}.png",enemies['bat']),('PUMPKIN',spr/f"{enemies['pumpkin']['sheet']}.png",enemies['pumpkin']),('GHOST',spr/f"{enemies['ghost']['sheet']}.png",enemies['ghost']),('MAZ',spr/f"{enemies['mazapegul']['sheet']}.png",enemies['mazapegul'])]
+    raw.append(('GROUND',make_world_ground(),True,None,None)); raw.append(('FG_CEMETERY',scenery(level,WORLD_W),True,(8,2),None))
+    actor_defs=[('PLAYER',spr/'pl_shpendi_base.png',manifest['shpendi']),('PLAYER_NAKED',spr/'pl_shpendi_naked.png',manifest['shpendi']),('ZOMBIE',spr/f"{enemies['zombie']['sheet']}.png",enemies['zombie']),('BAT',spr/f"{enemies['bat']['sheet']}.png",enemies['bat']),('PUMPKIN',spr/f"{enemies['pumpkin']['sheet']}.png",enemies['pumpkin']),('GHOST',spr/f"{enemies['ghost']['sheet']}.png",enemies['ghost']),('MAZ',spr/f"{enemies['mazapegul']['sheet']}.png",enemies['mazapegul'])]
     actor_meta={}
     for name,path,meta in actor_defs:
         im=Image.open(path).convert('RGBA'); count=len(meta['frames']); fw=int(meta['frameWidth']); fh=int(meta['frameHeight']); sheet,cw,ch=frame_sheet(im,fw,fh,count); actor_meta[name]=(meta,sheet,cw,ch); raw.append((name,sheet,True,None,(count,cw,ch)))
     raw.append(('BALL',base.make_ball(),True,None,None))
-    tile_cursor=CROM_BASE_TILE; pal_cursor=1; built=[]
+    # Native equivalents of the procedural web mazfx/shoe and wave textures.
+    shoe=Image.new('RGBA',(18,24));ImageDraw.Draw(shoe).rectangle((3,6,14,17),fill='#8a8aa6')
+    wave=Image.new('RGBA',(10,22));wd=ImageDraw.Draw(wave)
+    for k in range(3):wd.rectangle((k*3,2+k*2,k*3+1,19-k*2),fill='#ffffff' if k==0 else '#9fe8ff')
+    raw.append(('SHOE',shoe,True,None,None));raw.append(('WAVE',wave,True,None,None))
+    tile_cursor=CROM_BASE_TILE; pal_cursor=3; # FIX text owns palettes 0, 1 and 2.
+    built=[]
     class A:pass
     for name,rgba,transparent,grid,actor in raw:
         if actor is None and name!='BALL':rgba,lw=base.project_rgba(rgba)
@@ -121,7 +113,7 @@ def build(upstream:Path,target:Path):
         h += [f'#define GNG_{name}_FRAME_COUNT {len(meta["frames"])}',f'#define GNG_{name}_CELL_W {cw}',f'#define GNG_{name}_CELL_H {ch}',f'#define GNG_{name}_FRAME_COLS {cw//16}',f'#define GNG_{name}_FRAME_ROWS {ch//16}']
         for i,n in enumerate(meta['frames']):h.append(f'#define GNG_{name}_FRAME_{n.upper()} {i}')
         h.append('')
-    h.append('#endif');(sd/'level1_assets.h').write_text('\n'.join(h)+'\n')
+    h.extend(c_geometry(level));h.append('#endif');(sd/'level1_assets.h').write_text('\n'.join(h)+'\n')
     print('Generated FULL LEVEL 1 MVS assets:')
     for a in built:print(f'  {a.name:14s} {a.width}x{a.height} palettes={len(a.palettes)} tiles={a.cols*a.rows}')
     print(f'  world={WORLD_W} logical px, palette slots used={pal_cursor-1}/255');print('  exact ground spans + zombie/bat/pumpkin/ghost/Mazapegul assets')

@@ -25,6 +25,10 @@ VROM4=$(ROM)/$(GAMEROM)-v4.v4
 include build.mk
 include emu.mk
 
+# MAME is the required emulator. Do not make a missing optional GnGeo
+# installation prevent the MVS cartridge and MAME hash from building.
+CART_TARGETS=$(CART_ZIP) $(HASH_MAME)
+
 ELF=$(BUILDDIR)/rom.elf
 CORE_OBJS=$(BUILDDIR)/src/game.o $(BUILDDIR)/src/levels.o $(BUILDDIR)/src/characters.o
 $(CORE_OBJS): | $(BUILDDIR)/src
@@ -35,7 +39,7 @@ $(BUILDDIR)/main.o: $(SOUND_COMMANDS)
 $(SROM1): $(BUILDDIR)/assets/base-srom-text-shadow.fix
 
 # FULL LEVEL 1 C-ROM order. MUST match scripts/build_level1_full.py.
-GNG_GFX=sky city stadium_back stadium_front inside0 inside1 ground fg_cemetery player zombie bat pumpkin ghost maz ball
+GNG_GFX=sky city stadium_back stadium_front inside0 inside1 ground fg_cemetery player player_naked zombie bat pumpkin ghost maz ball shoe wave
 $(CROM1): $(BUILDDIR)/assets/base-crom-logo.c1 $(GNG_GFX:%=$(BUILDDIR)/assets/gng_%.c1)
 $(CROM2): $(BUILDDIR)/assets/base-crom-logo.c2 $(GNG_GFX:%=$(BUILDDIR)/assets/gng_%.c2)
 
