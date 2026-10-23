@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+      - name: Install Python validation dependency
+        run: python3 -m pip install --user pillow
       - name: Validate full Level 1 generators
         run: |
           python3 -m py_compile scripts/build-mvs-visual-assets.py scripts/build_level1_full.py scripts/build_level1_full_v2.py
