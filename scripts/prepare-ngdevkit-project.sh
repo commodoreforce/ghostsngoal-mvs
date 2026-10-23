@@ -17,7 +17,7 @@ if [ -z "$PYTHON_PREFIX" ] || [ ! -x "$PYTHON_BASE" ]; then echo "Python 3.14 Ho
 if [ -z "$NGDEVKIT_PREFIX" ] || [ ! -f "$NGDK_TOOLSDIR/tiletool.py" ]; then echo "Tool Python ngdevkit non trovati: $NGDK_TOOLSDIR" >&2; exit 1; fi
 
 if [ ! -x "$VENV/bin/python" ]; then rm -rf "$VENV"; "$PYTHON_BASE" -m venv "$VENV"; fi
-"$VENV/bin/python" -m pip install --quiet --upgrade pip pillow
+"$VENV/bin/python" -m pip install --quiet --upgrade pip pillow ruamel.yaml PyYAML
 PYTHON_BIN="$VENV/bin/python"
 
 if [ ! -d "$WORK/.git" ]; then git clone https://github.com/dciabrin/ngdevkit-examples.git "$WORK"; fi
@@ -135,7 +135,7 @@ PY
 
 echo "Preflight ngdevkit tools:"
 "$PYTHON_BIN" "$NGDK_TOOLSDIR/tiletool.py" --help >/dev/null
-"$PYTHON_BIN" -c 'from PIL import Image; import sys; print("  Python",sys.version.split()[0],"+ Pillow OK")'
+"$PYTHON_BIN" -c 'import PIL, ruamel.yaml, yaml, sys; print("  Python",sys.version.split()[0],"+ Pillow + ruamel.yaml + PyYAML OK")'
 "$PYTHON_BIN" -m py_compile "$ROOT/scripts/build-mvs-visual-assets.py" "$ROOT/scripts/build_level1_full.py" "$ROOT/scripts/build_level1_full_v2.py"
 
 echo
