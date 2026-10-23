@@ -13,6 +13,14 @@ GAMEROM=ghostngol
 GAMETITLE=Ghosts n Goals
 
 include rom.mk
+
+# 4 x 512 KiB V-ROM banks. The 39.6 s intro plus Level 1 loop/SFX no longer
+# have to fit inside the template's single 512 KiB V-ROM.
+VROMTEMPLATE=$(ROM)/$(GAMEROM)-vX.vX
+VROM2=$(ROM)/$(GAMEROM)-v2.v2
+VROM3=$(ROM)/$(GAMEROM)-v3.v3
+VROM4=$(ROM)/$(GAMEROM)-v4.v4
+
 include build.mk
 include emu.mk
 
@@ -25,23 +33,22 @@ $(BUILDDIR)/main.o: $(SOUND_COMMANDS)
 
 $(SROM1): $(BUILDDIR)/assets/base-srom-text-shadow.fix
 
-# FULL LEVEL 1 C-ROM order. This order MUST match scripts/build_level1_full.py.
+# FULL LEVEL 1 C-ROM order. MUST match scripts/build_level1_full.py.
 GNG_GFX=sky city stadium_back stadium_front inside0 inside1 ground fg_cemetery player zombie bat pumpkin ghost maz ball
 $(CROM1): $(BUILDDIR)/assets/base-crom-logo.c1 $(GNG_GFX:%=$(BUILDDIR)/assets/gng_%.c1)
 $(CROM2): $(BUILDDIR)/assets/base-crom-logo.c2 $(GNG_GFX:%=$(BUILDDIR)/assets/gng_%.c2)
 
-# Native Neo Geo sound driver + ADPCM samples.
+# Native Neo Geo Z80/nullsound driver + generated ADPCM commands.
 SOUND_DRIVER=$(BUILDDIR)/user_commands.ihx
 $(MROM1): $(SOUND_DRIVER)
 $(SOUND_DRIVER): $(BUILDDIR)/user_commands.rel
 $(BUILDDIR)/user_commands.rel: $(Z80_SAMPLES_IN_VROM) $(Z80_SOUND_COMMANDS)
 
-$(VROM1): assets/music-map.yaml assets/sample-map.yaml
+$(VROM1) $(VROM2) $(VROM3) $(VROM4): assets/music-map.yaml assets/sample-map.yaml
 $(Z80_SAMPLES_IN_VROM): assets/music-map.yaml assets/sample-map.yaml
 $(Z80_SOUND_COMMANDS): assets/music-map.yaml assets/sample-map.yaml
 $(SOUND_COMMANDS): assets/music-map.yaml assets/sample-map.yaml
 
 generate-sound: $(Z80_SAMPLES_IN_VROM) $(Z80_SOUND_COMMANDS) $(SOUND_COMMANDS)
 .PHONY: generate-sound
-
 CUSTOM_GENERATE_TARGETS=generate-sound
