@@ -11,7 +11,6 @@
 #define ADDR_SCB2 0x8000
 #define VISIBLE_STRIPS 21
 
-/* Painter's order: higher SCB numbers are nearer the viewer. */
 #define SCB_SKY        0
 #define SCB_ATMOS      21
 #define SCB_CITY       42
@@ -80,7 +79,6 @@ static void position_strip(u16 scb,u8 rows,s16 x,s16 y){
 }
 static void hide_strip(u16 scb){position_strip(scb,1,500,240);}
 
-/* Repeating layers are only used where repetition is intentional (ground/foreground). */
 static void draw_repeating_layer(u16 first,u16 tile,u16 cols,u8 rows,const unsigned char*pm,s16 scroll,s16 y){
     s32 ps=((s32)scroll*GNG_X_NUM)/GNG_X_DEN;
     s32 width=(s32)cols*16;
@@ -104,7 +102,6 @@ static void draw_repeating_layer(u16 first,u16 tile,u16 cols,u8 rows,const unsig
     }
 }
 
-/* Finite painted layers never wrap. This removes visible seams at the source edges. */
 static void draw_clamped_layer(u16 first,u16 tile,u16 cols,u8 rows,const unsigned char*pm,s16 scroll,s16 y){
     s32 ps=((s32)scroll*GNG_X_NUM)/GNG_X_DEN;
     u16 c,r,start;
@@ -164,12 +161,12 @@ static void draw_scenery(void){
     draw_clamped_layer(SCB_SKY,GNG_SKY_TILE,GNG_SKY_COLS,GNG_SKY_ROWS,GNG_SKY_PALMAP,sky,0);
     draw_clamped_layer(SCB_ATMOS,GNG_ATMOS_TILE,GNG_ATMOS_COLS,GNG_ATMOS_ROWS,GNG_ATMOS_PALMAP,atmos,0);
     draw_clamped_layer(SCB_CITY,GNG_CITY_TILE,GNG_CITY_COLS,GNG_CITY_ROWS,GNG_CITY_PALMAP,city,0);
-    draw_repeating_layer(SCB_GROUND,GNG_GROUND_TILE,GNG_GROUND_COLS,GNG_GROUND_ROWS,GNG_GROUND_PALMAP,camera_x,208);
+    draw_clamped_layer(SCB_GROUND,GNG_GROUND_TILE,GNG_GROUND_COLS,GNG_GROUND_ROWS,GNG_GROUND_PALMAP,camera_x,160);
     draw_repeating_layer(SCB_FOREGROUND,GNG_FG_CEMETERY_TILE,GNG_FG_CEMETERY_COLS,GNG_FG_CEMETERY_ROWS,GNG_FG_CEMETERY_PALMAP,fg,0);
 }
 
-static void demo_mode(void){ng_cls();set_backdrop(0x0088);ng_center_text_tall(8,0,"GHOSTS N GOALS");ng_center_text(12,0,"NEO GEO MVS");ng_center_text(17,0,"HAND AUTHORED OPENING");ng_center_text(22,0,bios_mvs_flag==SYSTEM_MVS?"INSERT COIN":"PRESS START");{u16 f=60*15;while(f--&&bios_user_mode!=USER_MODE_GAME)ng_wait_vblank();}}
-static void title_mode(void){ng_cls();set_backdrop(0x0800);ng_center_text_tall(8,0,"GHOSTS N GOALS");ng_center_text(16,0,"OPENING ZONE");ng_center_text(22,0,"PRESS START");while(bios_user_mode!=USER_MODE_GAME){sprintf(str,"TIMER %02x",bios_compulsion_timer);ng_center_text(24,0,str);ng_wait_vblank();}}
+static void demo_mode(void){ng_cls();set_backdrop(0x0088);ng_center_text_tall(8,0,"GHOSTS N GOALS");ng_center_text(12,0,"NEO GEO MVS");ng_center_text(17,0,"PREMIUM OPENING V3");ng_center_text(22,0,bios_mvs_flag==SYSTEM_MVS?"INSERT COIN":"PRESS START");{u16 f=60*15;while(f--&&bios_user_mode!=USER_MODE_GAME)ng_wait_vblank();}}
+static void title_mode(void){ng_cls();set_backdrop(0x0800);ng_center_text_tall(8,0,"GHOSTS N GOALS");ng_center_text(16,0,"OPENING ZONE V3");ng_center_text(22,0,"PRESS START");while(bios_user_mode!=USER_MODE_GAME){sprintf(str,"TIMER %02x",bios_compulsion_timer);ng_center_text(24,0,str);ng_wait_vblank();}}
 
 static void update_camera(void){s16 desired=(s16)(player_x-(GNG_LOGICAL_W/2)+(player_facing_right?34:-34));desired=clamp16(desired,0,CAMERA_MAX);camera_x_fp+=(((s32)desired<<FP_SHIFT)-camera_x_fp)/6;camera_x=(s16)(camera_x_fp>>FP_SHIFT);}
 static void spawn_ball(u8 up,u8 down_air){u8 i;for(i=0;i<MAX_BALLS;++i)if(!balls[i].active){Ball*b=&balls[i];b->active=1;b->life=BALL_LIFE;b->bounces=0;b->x=(s16)(player_x+(player_facing_right?15:-15));b->y=(s16)(player_y+(up?10:down_air?34:25));if(up){b->vx=player_facing_right?3:-3;b->vy=-3;}else if(down_air){b->vx=player_facing_right?3:-3;b->vy=3;}else{b->vx=player_facing_right?4:-4;b->vy=0;}kick_timer=9;return;}}
@@ -202,8 +199,6 @@ static void game_mode(void){
     frame_counter=0;
     for(i=0;i<MAX_BALLS;++i)balls[i].active=0;
 
-    /* All VRAM writes happen immediately after VBlank. This prevents transient
-       black pixels/tearing while actor strips are moving or changing frame. */
     for(;;){
         u8 pad;
         u8 moving;
