@@ -11,5 +11,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+      - name: Validate asset generator
+        run: python3 -m py_compile scripts/build-mvs-visual-assets.py
       - name: Build and fuzz core
         run: make test
