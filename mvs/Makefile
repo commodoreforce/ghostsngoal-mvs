@@ -18,34 +18,30 @@ include emu.mk
 
 ELF=$(BUILDDIR)/rom.elf
 CORE_OBJS=$(BUILDDIR)/src/game.o $(BUILDDIR)/src/levels.o $(BUILDDIR)/src/characters.o
-
 $(CORE_OBJS): | $(BUILDDIR)/src
-
 $(ELF): $(BUILDDIR)/main.o $(CORE_OBJS)
 $(PROM1): $(ELF)
+$(BUILDDIR)/main.o: $(SOUND_COMMANDS)
 
 $(SROM1): $(BUILDDIR)/assets/base-srom-text-shadow.fix
 
-# V4 finite-world C-ROM order. MUST match scripts/build-mvs-visual-assets.py:
-# SKY -> CITY -> GROUND -> FG -> PLAYER -> ZOMBIE -> BALL.
-$(CROM1): $(BUILDDIR)/assets/base-crom-logo.c1
-$(CROM2): $(BUILDDIR)/assets/base-crom-logo.c2
-$(CROM1): $(BUILDDIR)/assets/gng_sky.c1
-$(CROM2): $(BUILDDIR)/assets/gng_sky.c2
-$(CROM1): $(BUILDDIR)/assets/gng_city.c1
-$(CROM2): $(BUILDDIR)/assets/gng_city.c2
-$(CROM1): $(BUILDDIR)/assets/gng_ground.c1
-$(CROM2): $(BUILDDIR)/assets/gng_ground.c2
-$(CROM1): $(BUILDDIR)/assets/gng_fg_cemetery.c1
-$(CROM2): $(BUILDDIR)/assets/gng_fg_cemetery.c2
-$(CROM1): $(BUILDDIR)/assets/gng_shpendi.c1
-$(CROM2): $(BUILDDIR)/assets/gng_shpendi.c2
-$(CROM1): $(BUILDDIR)/assets/gng_zombie.c1
-$(CROM2): $(BUILDDIR)/assets/gng_zombie.c2
-$(CROM1): $(BUILDDIR)/assets/gng_ball.c1
-$(CROM2): $(BUILDDIR)/assets/gng_ball.c2
+# FULL LEVEL 1 C-ROM order. This order MUST match scripts/build_level1_full.py.
+GNG_GFX=sky city stadium_back stadium_front inside0 inside1 ground fg_cemetery player zombie bat pumpkin ghost maz ball
+$(CROM1): $(BUILDDIR)/assets/base-crom-logo.c1 $(GNG_GFX:%=$(BUILDDIR)/assets/gng_%.c1)
+$(CROM2): $(BUILDDIR)/assets/base-crom-logo.c2 $(GNG_GFX:%=$(BUILDDIR)/assets/gng_%.c2)
 
-SOUND_DRIVER=$(BUILDDIR)/assets/base-sound-driver.ihx
+# Native Neo Geo sound driver + ADPCM samples.
+SOUND_DRIVER=$(BUILDDIR)/user_commands.ihx
 $(MROM1): $(SOUND_DRIVER)
+$(SOUND_DRIVER): $(BUILDDIR)/user_commands.rel
+$(BUILDDIR)/user_commands.rel: $(Z80_SAMPLES_IN_VROM) $(Z80_SOUND_COMMANDS)
 
-CUSTOM_GENERATE_TARGETS=
+$(VROM1): assets/music-map.yaml assets/sample-map.yaml
+$(Z80_SAMPLES_IN_VROM): assets/music-map.yaml assets/sample-map.yaml
+$(Z80_SOUND_COMMANDS): assets/music-map.yaml assets/sample-map.yaml
+$(SOUND_COMMANDS): assets/music-map.yaml assets/sample-map.yaml
+
+generate-sound: $(Z80_SAMPLES_IN_VROM) $(Z80_SOUND_COMMANDS) $(SOUND_COMMANDS)
+.PHONY: generate-sound
+
+CUSTOM_GENERATE_TARGETS=generate-sound
