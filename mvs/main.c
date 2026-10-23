@@ -100,7 +100,7 @@ static void load_palette(u8 slot,const unsigned short*colors){u16 b=(u16)slot*16
 static void load_set(u8 first,const unsigned short*p,u16 count){u16 i;for(i=0;i<count;++i)load_palette((u8)(first+i),p+i*16);}
 static void init_palettes(void){const u16 fix[]={0x8000,0x0fff,0x0f80,0x0cc0,0x0666,0,0,0,0,0,0,0,0,0,0,0};load_palette(0,fix);load_palette(1,fix);load_palette(2,fix);
 #define LP(N) load_set(GNG_##N##_PAL_FIRST,&GNG_##N##_PALETTES[0][0],GNG_##N##_PAL_COUNT)
-LP(SKY);LP(CITY);LP(STADIUM_BACK);LP(STADIUM_FRONT);LP(INSIDE0);LP(INSIDE1);LP(GROUND);LP(FG_CEMETERY);LP(PLAYER);LP(PLAYER_NAKED);LP(ZOMBIE);LP(BAT);LP(PUMPKIN);LP(GHOST);LP(MAZ);LP(BALL);LP(SHOE);LP(WAVE);
+LP(SKY);LP(CITY);LP(STADIUM_BACK);LP(STADIUM_FRONT);LP(STADIUM_BLEND1);LP(STADIUM_BLEND2);LP(STADIUM_BLEND3);LP(INSIDE0);LP(INSIDE1);LP(GROUND);LP(FG_CEMETERY);LP(PLAYER);LP(PLAYER_NAKED);LP(ZOMBIE);LP(BAT);LP(PUMPKIN);LP(GHOST);LP(MAZ);LP(BALL);LP(SHOE);LP(WAVE);LP(RAIN);LP(TITLE);
 #undef LP
 }
 static void position_strip(u16 scb,u8 rows,s16 x,s16 y){*REG_VRAMMOD=0x200;*REG_VRAMADDR=ADDR_SCB2+scb;*REG_VRAMRW=0x0fff;*REG_VRAMRW=(u16)((-(y+16)*128)+rows);*REG_VRAMRW=(u16)(x*128);}
@@ -124,7 +124,43 @@ static void draw_actor(u16 first,u16 tile,u16 cols,const unsigned char*pm,u8 fra
 static u8 is_ground(s16 x){u8 i;for(i=0;i<GROUND_SPAN_COUNT;++i){s16 a=(s16)ground_spans[i][0]*16,b=(s16)ground_spans[i][1]*16;if(x>=a&&x<b)return 1;}return 0;}
 static s16 ground_top_for_cell(u8 rows){return (s16)(GROUND_Y-rows*16);}
 
-static void draw_background(void){s16 sx=camera_x;if(sx<720){draw_layer(SCB_SKY,GNG_SKY_TILE,GNG_SKY_COLS,GNG_SKY_ROWS,GNG_SKY_PALMAP,(camera_x_fp*3)/100,0);draw_layer(SCB_MID,GNG_CITY_TILE,GNG_CITY_COLS,GNG_CITY_ROWS,GNG_CITY_PALMAP,(camera_x_fp*15)/100,0);}else if(sx<1570){s16 lx=(s16)(256-((sx-694)*35)/100);draw_layer(SCB_SKY,GNG_SKY_TILE,GNG_SKY_COLS,GNG_SKY_ROWS,GNG_SKY_PALMAP,(camera_x_fp*3)/100,0);draw_positioned(SCB_MID,GNG_STADIUM_BACK_TILE,GNG_STADIUM_BACK_COLS,GNG_STADIUM_BACK_ROWS,GNG_STADIUM_BACK_PALMAP,lx,0);}else if(sx<2050){s16 lx=(s16)(96-((sx-1570)*12)/100);draw_layer(SCB_SKY,GNG_SKY_TILE,GNG_SKY_COLS,GNG_SKY_ROWS,GNG_SKY_PALMAP,(camera_x_fp*3)/100,0);draw_positioned(SCB_MID,GNG_STADIUM_FRONT_TILE,GNG_STADIUM_FRONT_COLS,GNG_STADIUM_FRONT_ROWS,GNG_STADIUM_FRONT_PALMAP,lx,0);}else{s32 local=((s32)(sx-2050)<<FP_SHIFT)*30/100;if(frame_counter&32)draw_layer(SCB_SKY,GNG_INSIDE1_TILE,GNG_INSIDE1_COLS,GNG_INSIDE1_ROWS,GNG_INSIDE1_PALMAP,local,0);else draw_layer(SCB_SKY,GNG_INSIDE0_TILE,GNG_INSIDE0_COLS,GNG_INSIDE0_ROWS,GNG_INSIDE0_PALMAP,local,0);hide_range(SCB_MID,VISIBLE_STRIPS);}draw_layer(SCB_GROUND,GNG_GROUND_TILE,GNG_GROUND_COLS,GNG_GROUND_ROWS,GNG_GROUND_PALMAP,camera_x_fp,GROUND_Y);draw_layer(SCB_FOREGROUND,GNG_FG_CEMETERY_TILE,GNG_FG_CEMETERY_COLS,GNG_FG_CEMETERY_ROWS,GNG_FG_CEMETERY_PALMAP,camera_x_fp,0);}
+/* The painted planes use the web camera coordinates and original image widths.
+ * City+sky are precomposited to keep the background within 42 sprite strips.
+ * The three in-place dissolve steps preserve transparent stadium silhouettes. */
+static void draw_background(void){
+    s16 sx=camera_x;
+    if(sx<1904){
+        s16 city_scroll=clamp16((s16)((s32)sx*15/100),0,272);
+        s16 stadium_x=clamp16((s16)(256-((s32)(sx-696)*35)/100),-272,256);
+        draw_layer(SCB_SKY,GNG_CITY_TILE,GNG_CITY_COLS,GNG_CITY_ROWS,GNG_CITY_PALMAP,(s32)city_scroll*FP_ONE,0);
+#define STADIUM(N) draw_positioned(SCB_MID,GNG_##N##_TILE,GNG_##N##_COLS,GNG_##N##_ROWS,GNG_##N##_PALMAP,stadium_x,0)
+        if(sx<1280){STADIUM(STADIUM_BACK);}
+        else if(sx<1332){STADIUM(STADIUM_BLEND1);}
+        else if(sx<1384){STADIUM(STADIUM_BLEND2);}
+        else if(sx<1436){STADIUM(STADIUM_BLEND3);}
+        else {STADIUM(STADIUM_FRONT);}
+#undef STADIUM
+    }else{
+        s16 local=clamp16((s16)((s32)(sx-1808)*295/1000),0,742);
+        if((frame_counter/25)&1)draw_layer(SCB_SKY,GNG_INSIDE1_TILE,GNG_INSIDE1_COLS,GNG_INSIDE1_ROWS,GNG_INSIDE1_PALMAP,(s32)local*FP_ONE,0);
+        else draw_layer(SCB_SKY,GNG_INSIDE0_TILE,GNG_INSIDE0_COLS,GNG_INSIDE0_ROWS,GNG_INSIDE0_PALMAP,(s32)local*FP_ONE,0);
+        hide_range(SCB_MID,VISIBLE_STRIPS);
+    }
+    draw_layer(SCB_GROUND,GNG_GROUND_TILE,GNG_GROUND_COLS,GNG_GROUND_ROWS,GNG_GROUND_PALMAP,camera_x_fp,GROUND_Y);
+    draw_layer(SCB_FOREGROUND,GNG_FG_CEMETERY_TILE,GNG_FG_CEMETERY_COLS,GNG_FG_CEMETERY_ROWS,GNG_FG_CEMETERY_PALMAP,camera_x_fp,0);
+}
+/* Sparse foreground rain, below FIX HUD. Eight strips have a bounded scanline cost. */
+static void draw_weather(void){
+    u8 i;
+    for(i=0;i<8;++i){
+        u16 scb=276+i;
+        s16 x=(s16)((i*43+640-(frame_counter*(i&1?2:1)+camera_x/2)%640)%320);
+        s16 y=(s16)((i*37+frame_counter*(i&1?5:3))%216);
+        *REG_VRAMMOD=1;*REG_VRAMADDR=ADDR_SCB1+scb*64;
+        *REG_VRAMRW=GNG_RAIN_TILE;*REG_VRAMRW=(u16)(GNG_RAIN_PALMAP[0]<<8);
+        position_strip(scb,1,x,y);
+    }
+}
 
 static u8 enemy_width(u8 t){switch(t){case ET_ZOMBIE:return 50;case ET_BAT:return 34;case ET_PUMPKIN:return 30;case ET_GHOST:return 36;default:return 88;}}
 static u8 enemy_rows(u8 t){switch(t){case ET_ZOMBIE:return GNG_ZOMBIE_FRAME_ROWS;case ET_BAT:return GNG_BAT_FRAME_ROWS;case ET_PUMPKIN:return GNG_PUMPKIN_FRAME_ROWS;case ET_GHOST:return GNG_GHOST_FRAME_ROWS;default:return GNG_MAZ_FRAME_ROWS;}}
@@ -290,7 +326,7 @@ static void draw_hazards(void){
 }
 static void hud(void){char s[40];sprintf(s,"SCORE %06lu   x%u",(unsigned long)score,lives);ng_text(1,3,0,s);if(boss_spawned&&!stage_clear){u8 hp=0,i;for(i=0;i<MAX_ENEMIES;++i)if(enemies[i].type==ET_MAZ&&enemies[i].state==ES_ALIVE)hp=enemies[i].hp;sprintf(s,"MAZAPEGUL %02u/32",hp);ng_text(22,3,0,s);}}
 static void reset_game(void){u8 i;score=0;lives=3;armored=1;invuln=0;stage_clear=0;boss_spawned=0;checkpoint_reached=0;zombie_timer=180;music_timer=0;wave_mask=0;clear_enemies();for(i=0;i<MAX_BALLS;++i)balls[i].active=0;for(i=0;i<MAX_HAZARDS;++i)hazards[i].life=0;player_x_fp=48L<<FP_SHIFT;player_y_fp=(s32)PLAYER_CELL_Y<<FP_SHIFT;player_vx_fp=player_vy_fp=0;sync_player();player_ground=1;player_facing_right=1;kick_timer=0;drop_timer=0;coyote_timer=0;jump_buffer=0;camera_x_fp=0;camera_x=0;prev_pad=0;frame_counter=0;}
-static void title_screen(void){u16 t=0;ng_cls();hide_range(0,300);set_backdrop(0x8000);init_palettes();reset_sound();sound(SND_SFX_INTRO);for(;;){ng_wait_vblank();draw_layer(SCB_SKY,GNG_SKY_TILE,GNG_SKY_COLS,GNG_SKY_ROWS,GNG_SKY_PALMAP,((s32)(t%240)<<FP_SHIFT)/8,0);draw_positioned(SCB_MID,GNG_STADIUM_BACK_TILE,GNG_STADIUM_BACK_COLS,GNG_STADIUM_BACK_ROWS,GNG_STADIUM_BACK_PALMAP,-40,0);ng_center_text_tall(8,0,"GHOSTS");ng_center_text_tall(11,0,"'N GOALS");ng_center_text(19,2,"PRESS START");ng_center_text(22,0,"FULL LEVEL 1 R1");if((t&31)<16)ng_center_text(25,1,"5 COIN  /  1 START");else ng_center_text(25,1,"                    ");if(start_requested||bios_user_mode==USER_MODE_GAME)break;t++;if(t>=2376){sound(SND_SFX_INTRO);t=0;}}reset_sound();start_requested=0;}
+static void title_screen(void){u16 t=0;ng_cls();hide_range(0,300);set_backdrop(0x8000);init_palettes();reset_sound();sound(SND_SFX_INTRO);for(;;){ng_wait_vblank();draw_layer(SCB_SKY,GNG_SKY_TILE,GNG_SKY_COLS,GNG_SKY_ROWS,GNG_SKY_PALMAP,((s32)(t%240)<<FP_SHIFT)/8,0);draw_positioned(SCB_MID,GNG_STADIUM_BACK_TILE,GNG_STADIUM_BACK_COLS,GNG_STADIUM_BACK_ROWS,GNG_STADIUM_BACK_PALMAP,-40,0);draw_positioned(SCB_FOREGROUND,GNG_TITLE_TILE,GNG_TITLE_COLS,GNG_TITLE_ROWS,GNG_TITLE_PALMAP,0,24+(t/54%2));{u8 i;for(i=0;i<4;++i)draw_actor(SCB_ENEMY_BASE+i*ENEMY_STRIDE,GNG_GHOST_TILE,GNG_GHOST_COLS,GNG_GHOST_PALMAP,(t/18)&1,GNG_GHOST_FRAME_COLS,GNG_GHOST_FRAME_ROWS,(s16)(12+i*84),(s16)(12+(i%2)*104+((t/12+i*3)%12)),i&1);}ng_center_text(19,2,"PRESS START");ng_center_text(22,0,"FULL LEVEL 1 R1");ng_center_text(23,0,"VISUAL REVISION 2");if((t&31)<16)ng_center_text(25,1,"5 COIN  /  1 START");else ng_center_text(25,1,"                    ");if(start_requested||bios_user_mode==USER_MODE_GAME)break;t++;if(t>=2376){sound(SND_SFX_INTRO);t=0;}}reset_sound();start_requested=0;}
 static void stage_clear_screen(void){
     u16 t=180;u8 i;
     for(i=0;i<MAX_BALLS;++i)balls[i].active=0;
@@ -304,7 +340,7 @@ static void stage_clear_screen(void){
     }
 }
 static void game_over_screen(void){u16 t=180;while(t--){ng_wait_vblank();ng_center_text_tall(12,0,"GAME OVER");}}
-static void game_loop(void){reset_game();ng_cls();set_backdrop(0x8000);init_palettes();sound(SND_SFX_LEVEL_LOOP);while(lives&&!stage_clear){u8 pad=bios_p1current,moving=!!(pad&(CNT_LEFT|CNT_RIGHT));u8 pf;update_player(pad);update_camera();update_spawns();update_enemies();update_balls();update_hazards(pad);pf=player_frame(moving);if(music_timer++>=930){sound(SND_SFX_LEVEL_LOOP);music_timer=0;}ng_wait_vblank();draw_background();draw_player(pf);{u8 i;for(i=0;i<MAX_ENEMIES;++i)draw_enemy_slot(i,&enemies[i]);}draw_balls();draw_hazards();hud();prev_pad=pad;frame_counter++;}if(stage_clear){reset_sound();sound(SND_SFX_STAGE_CLEAR);stage_clear_screen();}else{reset_sound();game_over_screen();}reset_sound();}
+static void game_loop(void){reset_game();ng_cls();set_backdrop(0x8000);init_palettes();sound(SND_SFX_LEVEL_LOOP);while(lives&&!stage_clear){u8 pad=bios_p1current,moving=!!(pad&(CNT_LEFT|CNT_RIGHT));u8 pf;update_player(pad);update_camera();update_spawns();update_enemies();update_balls();update_hazards(pad);pf=player_frame(moving);if(music_timer++>=930){sound(SND_SFX_LEVEL_LOOP);music_timer=0;}ng_wait_vblank();draw_background();draw_player(pf);{u8 i;for(i=0;i<MAX_ENEMIES;++i)draw_enemy_slot(i,&enemies[i]);}draw_balls();draw_hazards();draw_weather();hud();prev_pad=pad;frame_counter++;}hide_range(276,8);if(stage_clear){reset_sound();sound(SND_SFX_STAGE_CLEAR);stage_clear_screen();}else{reset_sound();game_over_screen();}reset_sound();}
 void player_start(void){bios_user_mode=USER_MODE_GAME;bios_player_mod1=1;start_requested=1;}
 void coin_sound(void){}
 int main_mvs_title(void){title_screen();game_loop();return 0;}

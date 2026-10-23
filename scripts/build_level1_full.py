@@ -7,7 +7,7 @@ import json
 import math
 import sys
 from pathlib import Path
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from level1_geometry import read_level, scenery, c_geometry
 
 HERE = Path(__file__).resolve().parent
@@ -37,11 +37,22 @@ def make_world_ground() -> Image.Image:
         for x in range(x0+19,x1+1,37):
             d.rectangle((x,20,min(x+2,x1),20),fill=(0x3a,0x2a,0x1e,255))
             if x+7<=x1:d.rectangle((x+7,27,x+8,27),fill=(0x3a,0x2a,0x1e,255))
+    # Web pit bands and broken turf edges remain visible instead of transparent holes.
+    for (_,end),(start,_) in zip(GROUND_SPANS,GROUND_SPANS[1:]):
+        x0,x1=end*16,start*16
+        for k,color in enumerate(('#1a1030','#120a22','#0a0614','#050308','#000000')):
+            d.rectangle((x0,k*4,x1-1,31),fill=color)
+        d.rectangle((x0,0,x0+1,31),fill='#3a2412');d.rectangle((x1-2,0,x1-1,31),fill='#3a2412')
+        d.rectangle((x0,0,x0+2,1),fill='#5a8a2a');d.rectangle((x1-3,0,x1-1,1),fill='#5a8a2a')
+        d.line((x0+1,2,x0+1,4),fill='#5a8a2a');d.line((x1-2,2,x1-2,4),fill='#5a8a2a')
     return out
 
 def fit_background(path:Path,width=528,height=224)->Image.Image:
     im=Image.open(path).convert("RGBA")
-    return im if im.size==(width,height) else im.resize((width,height),Image.Resampling.NEAREST)
+    if im.height != height:
+        raise ValueError(f"Unexpected background height: {path}: {im.size}")
+    # The stadium interior is 998 px wide, not 528. Never squash its composition.
+    return im
 
 def frame_sheet(src:Image.Image,fw:int,fh:int,count:int):
     pfw=math.ceil(fw*X_NUM/X_DEN); cell_w=((pfw+15)//16)*16; cell_h=((fh+15)//16)*16
@@ -77,11 +88,31 @@ def build(upstream:Path,target:Path):
     level=read_level(upstream)
     manifest=json.loads((spr/'manifest.json').read_text()); enemies=json.loads((spr/'enemies.json').read_text())
     raw=[]
-    # 8 regional palettes per painted backdrop: enough colour depth without exhausting 256 hardware slots.
-    for name,fn,transparent in [('SKY','l1_sky.png',False),('CITY','l1_cesena.png',True),('STADIUM_BACK','l1_stadio_retro.png',True),('STADIUM_FRONT','l1_stadio_ingresso.png',True),('INSIDE0','l1_inside0.png',False),('INSIDE1','l1_inside1.png',False)]:
-        raw.append((name,fit_background(bgs/fn),transparent,(4,2),None))
+    sky=fit_background(bgs/'l1_sky.png')
+    city=fit_background(bgs/'l1_cesena.png')
+    outdoor=sky.copy();outdoor.alpha_composite(city)
+    raw.append(('SKY',sky,False,(4,2),None))
+    raw.append(('CITY',outdoor,False,(4,2),None))
+    back=fit_background(bgs/'l1_stadio_retro.png')
+    front=fit_background(bgs/'l1_stadio_ingresso.png')
+    raw.append(('STADIUM_BACK',back,True,(4,2),None))
+    raw.append(('STADIUM_FRONT',front,True,(4,2),None))
+    # Ordered dissolve replaces architecture in place, without a black rectangle.
+    order=((0,8,2,10),(12,4,14,6),(3,11,1,9),(15,7,13,5))
+    for step in range(1,4):
+        mixed=back.copy();mp=mixed.load();fp=front.load()
+        for y in range(mixed.height):
+            for x in range(mixed.width):
+                if order[y%4][x%4]<step*4:mp[x,y]=fp[x,y]
+        raw.append((f'STADIUM_BLEND{step}',mixed,True,(4,2),None))
+    for name in ('INSIDE0','INSIDE1'):
+        inside=fit_background(bgs/(name.lower().replace('inside','l1_inside')+'.png'))
+        # Preserve transparent roof openings: sky and the Rocca remain behind them.
+        composite=sky.resize(inside.size,Image.Resampling.NEAREST)
+        composite.alpha_composite(city,(20,-30));composite.alpha_composite(inside)
+        raw.append((name,composite,False,(4,2),None))
     # World layers use tiny fixed palettes: they are deliberately authored in only a few colours.
-    raw.append(('GROUND',make_world_ground(),True,None,None)); raw.append(('FG_CEMETERY',scenery(level,WORLD_W),True,(8,2),None))
+    raw.append(('GROUND',make_world_ground(),True,(4,1),None)); raw.append(('FG_CEMETERY',scenery(level,WORLD_W),True,(8,2),None))
     actor_defs=[('PLAYER',spr/'pl_shpendi_base.png',manifest['shpendi']),('PLAYER_NAKED',spr/'pl_shpendi_naked.png',manifest['shpendi']),('ZOMBIE',spr/f"{enemies['zombie']['sheet']}.png",enemies['zombie']),('BAT',spr/f"{enemies['bat']['sheet']}.png",enemies['bat']),('PUMPKIN',spr/f"{enemies['pumpkin']['sheet']}.png",enemies['pumpkin']),('GHOST',spr/f"{enemies['ghost']['sheet']}.png",enemies['ghost']),('MAZ',spr/f"{enemies['mazapegul']['sheet']}.png",enemies['mazapegul'])]
     actor_meta={}
     for name,path,meta in actor_defs:
@@ -92,12 +123,23 @@ def build(upstream:Path,target:Path):
     wave=Image.new('RGBA',(10,22));wd=ImageDraw.Draw(wave)
     for k in range(3):wd.rectangle((k*3,2+k*2,k*3+1,19-k*2),fill='#ffffff' if k==0 else '#9fe8ff')
     raw.append(('SHOE',shoe,True,None,None));raw.append(('WAVE',wave,True,None,None))
+    weather=Image.new('RGBA',(16,16))
+    wd=ImageDraw.Draw(weather)
+    for k in range(6):wd.point((8-k//3,k+3),fill=(55+k*5,61+k*5,86+k*6,255))
+    raw.append(('RAIN',weather,True,None,None))
+    title=Image.new('RGBA',(256,112));td=ImageDraw.Draw(title)
+    for text,y,size,color in (('GHOSTS',4,24,'#f4f4f0'),("'N",42,16,'#ff7a1a'),('GOALS',70,24,'#f4f4f0')):
+        font=ImageFont.truetype(str(upstream/'server/lib/fonts/PressStart2P.ttf'),size)
+        box=td.textbbox((0,0),text,font=font);x=(256-(box[2]-box[0]))//2
+        td.text((x+2,y+2),text,font=font,fill='#160b16',stroke_width=3,stroke_fill='#160b16')
+        td.text((x,y),text,font=font,fill=color,stroke_width=2,stroke_fill='#5a1a00')
+    raw.append(('TITLE',title,True,None,None))
     tile_cursor=CROM_BASE_TILE; pal_cursor=3; # FIX text owns palettes 0, 1 and 2.
     built=[]
     class A:pass
     for name,rgba,transparent,grid,actor in raw:
-        if actor is None and name!='BALL':rgba,lw=base.project_rgba(rgba)
-        elif name=='BALL':lw=13
+        if actor is None and name not in ('BALL','RAIN'):rgba,lw=base.project_rgba(rgba)
+        elif name in ('BALL','RAIN'):lw=13
         else:lw=(actor[1]*X_DEN//X_NUM)*actor[0]
         if rgba.width%16 or rgba.height%16:
             pad=Image.new('RGBA',(((rgba.width+15)//16)*16,((rgba.height+15)//16)*16),(0,0,0,0)); pad.alpha_composite(rgba,(0,0)); rgba=pad
@@ -106,6 +148,10 @@ def build(upstream:Path,target:Path):
         else:indexed,pals,pmap=base.quantize_single(rgba,transparent,pal_cursor)
         if pal_cursor+len(pals)>256:raise ValueError(f"palette budget exceeded at {name}: {pal_cursor}+{len(pals)}")
         fn='gng_'+name.lower()+'.gif'; base.save_indexed(indexed,ad/fn,transparent); a=A();a.name=name;a.filename=fn;a.tile_base=tile_cursor;a.cols=rgba.width//16;a.rows=rgba.height//16;a.width=rgba.width;a.height=rgba.height;a.logical_width=lw;a.pal_first=pal_cursor;a.palettes=pals;a.palmap=pmap;built.append(a);tile_cursor+=a.cols*a.rows;pal_cursor+=len(pals)
+    # Each C-ROM pair encodes 128 bytes per tile (64 bytes per chip).
+    # Fail before Makefile truncate could silently remove generated graphics.
+    if tile_cursor*64 > 2097152:
+        raise ValueError(f'C-ROM overflow: {tile_cursor} tiles exceed 2 MiB/chip')
     h=['#ifndef GNG_LEVEL1_ASSETS_H','#define GNG_LEVEL1_ASSETS_H','',f'#define GNG_LOGICAL_W {LOGICAL_W}',f'#define GNG_SCREEN_W {SCREEN_W}',f'#define GNG_SCREEN_H {SCREEN_H}',f'#define GNG_LEVEL1_WORLD_W {WORLD_W}',f'#define GNG_X_NUM {X_NUM}',f'#define GNG_X_DEN {X_DEN}','']
     for a in built:
         p='GNG_'+a.name;h += [f'#define {p}_TILE {a.tile_base}',f'#define {p}_COLS {a.cols}',f'#define {p}_ROWS {a.rows}',f'#define {p}_W {a.width}',f'#define {p}_H {a.height}',f'#define {p}_PAL_FIRST {a.pal_first}',f'#define {p}_PAL_COUNT {len(a.palettes)}',c_pal(p+'_PALETTES',a.palettes),c_u8(p+'_PALMAP',a.palmap)]

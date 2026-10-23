@@ -83,3 +83,34 @@ weather/fog/fade composition, audio polish, extended soak/balance testing, and
 validation with other BIOS/hardware. The current deterministic boss attacks and
 rewind are native approximations of web behavior. Follow docs/STABLE_GATE.md
 before claiming production readiness or a 10/10 fidelity score.
+
+## Visual revision 2 (2026-10-23)
+
+The prebuilt bundle is refreshed on the same gngl1r1 cartridge ID. The new
+visible marker VISUAL REVISION 2 is now mandatory in verify-mvs-rom.py.
+
+- Preserve original backdrop widths: inside0/1 are **998x224**, not 528x224.
+  fit_background() must never resize these backdrops to one common width.
+- Background render has two 21-strip planes. City+sky are precomposited;
+  stadium replaces them at the web-derived coordinates. Three ordered dissolve
+  assets replace rear/front architecture in place. Inside uses 0.295 scrolling
+  from sx=1808, clamped, with 25-frame crowd alternation.
+- Transparent interior openings are composited over sky/city, never black.
+- Original upstream PressStart2P.ttf generates native title C-ROM graphics;
+  four animated ghosts reuse native actor sheets.
+- LEDs and checkpoint flag use literal finite web placements; ground includes
+  pit bands/edge turf. Eight foreground rain strips use SCB 276..283; keep them
+  separate from hazard slots 212..275 and hide at game-loop exit.
+- Palette usage is 252/255, C-ROM budget checked before Makefile truncation.
+  Do not add per-asset palettes without checking the hardware limit.
+
+Verified clean build, 50,123-frame host suite, all 16 fixture checks, default
+input-only MAME traversal (stage clear score 12,900; 2 lives; all 13 waves), and
+cold intro audio correlation 0.97888. Evidence packaged against exact ZIP SHA.
+MAME screenshots inspected at title, entrance and inside/arena. These are
+sampled frames, not proof of zero graphics defects on every frame/hardware.
+
+Remaining: interior entry cut; baked sky/city relative parallax approximation;
+no full fog/lightning/foreground silhouette treatment; existing pickup/crate/
+power and enemy-AI parity gaps. Shpendi/enemy sheets were not redrawn. Continue
+native visual polish and sprite/scanline profiling before claiming stability.

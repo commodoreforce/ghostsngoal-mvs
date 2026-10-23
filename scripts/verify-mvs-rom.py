@@ -16,7 +16,7 @@ def verify(project):
     rom = build / 'rom'
     elf = build / 'rom.elf'
     cart = rom / 'gngl1r1.zip'
-    for marker in (b'FULL LEVEL 1 R1', b'MAZAPEGUL'):
+    for marker in (b'FULL LEVEL 1 R1', b'MAZAPEGUL', b'VISUAL REVISION 2'):
         if marker not in elf.read_bytes():
             raise ValueError(f'ELF marker missing: {marker!r}')
     software = ET.parse(rom / 'neogeo.xml').find("software[@name='gngl1r1']")

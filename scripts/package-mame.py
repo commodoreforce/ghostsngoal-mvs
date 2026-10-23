@@ -25,11 +25,11 @@ files={name:(project/'build/rom'/name).read_bytes() for name in ('gngl1r1.zip','
 files['build-info.json']=json.dumps(dict(source_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),
     cartridge_sha256=cartsha,elf_sha256=hashlib.sha256((project/'build/rom.elf').read_bytes()).hexdigest()),indent=2).encode()+b'\n'
 for scenario,directory in proofs.items():
-    for name in ('result.json','mame.log','title.png','clear.png','world-1800.png','world-3700.png','armor-lost.png','game-over.png'):
+    for name in ('result.json','mame.log','title.png','clear.png','world-0.png','world-720.png','world-1400.png','world-1800.png','world-2050.png','world-2600.png','world-3200.png','world-3700.png','armor-lost.png','game-over.png'):
         if (directory/name).is_file():files[f'validation/{scenario}/{name}']=(directory/name).read_bytes()
 for name in ('COPYING','COPYING.LESSER'):
     files[name+'.ngdevkit']=(Path('/workspace/tools/ngdevkit')/name).read_bytes()
-files['README.txt']=('Ghosts n Goals MVS - Level 1 R1\n\n'
+files['README.txt']=('Ghosts n Goals MVS - Level 1 R1 / Visual Revision 2\n\n'
     'Richiede MAME. Controlli: 5 moneta, 1 Start, frecce movimento, Ctrl salto, Alt tiro.\n'
     'Avvio dalla cartella estratta:\n'
     'mame neogeo -cart1 gngl1r1 -hashpath . -rompath . -skip_gameinfo -window\n\n'

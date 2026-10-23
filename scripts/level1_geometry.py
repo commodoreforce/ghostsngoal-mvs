@@ -1,7 +1,7 @@
 """Read the literal Level 1 geometry from the pinned, read-only web source."""
 import ast
 import re
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 
 def read_level(upstream):
@@ -13,6 +13,8 @@ def read_level(upstream):
         result[name] = ast.literal_eval(literal)
     for name in ('graves', 'bigGraves', 'lamps', 'goals'):
         result[name] = ast.literal_eval(re.search(r'\b' + name + r':\s*(\[[^\]]*\])', source)[1])
+    for name in ('ledFrom','ledTo','ledStep','checkpoint'):
+        result[name] = int(re.search(r'\b'+name+r':\s*(\d+)',source)[1])
     return result
 
 
@@ -56,6 +58,17 @@ def scenery(level, width):
         rect(x,y,34,3,'#f4f4f0');rect(x,y,3,40,'#f4f4f0');rect(x+31,y,3,40,'#f4f4f0')
         for dx in range(4,31,4):rect(x+dx,y+3,1,37,'#55555a')
         for dy in range(6,40,4):rect(x+3,y+dy,28,1,'#55555a')
+    # Actual finite LED placements from the web, not repeating cemetery tiles.
+    font=ImageFont.load_default(size=8)
+    labels=('SPONSOR 1','SPONSOR 2','DAIBURDEL','SPONSOR 3')
+    for i,tile in enumerate(range(level['ledFrom'],level['ledTo'],level['ledStep'])):
+        x,y=tile*16-48,171
+        rect(x,y,96,14,'#05050a');rect(x,y,96,1,'#2a2a34');rect(x,y+13,96,1,'#2a2a34')
+        text=labels[i%4];box=d.textbbox((0,0),text,font=font)
+        d.text((x+(96-(box[2]-box[0]))//2,y+1),text,font=font,fill='#ff7a1a')
+        for dy in range(2,13,2):rect(x+1,y+dy,94,1,'#100b0c')
+    x=level['checkpoint']*16-6
+    rect(x+1,176,2,32,'#c9c9d2');rect(x+3,178,9,7,'#f4f4f0');rect(x+3,181,9,4,'#16161c')
     return image
 
 
