@@ -11,7 +11,7 @@ xcode-select -p >/dev/null 2>&1 || xcode-select --install || true
 brew tap dciabrin/ngdevkit
 brew trust dciabrin/ngdevkit
 brew install ngdevkit
-brew install python@3.14 pkg-config autoconf automake rsync zip imagemagick sox ngdevkit-gngeo make mame
+brew install python@3.14 pkg-config autoconf automake rsync zip imagemagick sox ffmpeg ngdevkit-gngeo make mame
 
 PREFIX="$(brew --prefix)"
 PYTHON_PREFIX="$(brew --prefix python@3.14)"
@@ -30,6 +30,7 @@ echo
 m68k-neogeo-elf-gcc --version | head -n 1
 gmake --version | head -n 1
 mame -version | head -n 1
+ffmpeg -version | head -n 1
 
 echo
 echo "Toolchain installata. Python ngdevkit fissato a: $PYTHON_BIN"
