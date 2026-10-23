@@ -11,9 +11,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - name: Validate asset generators
+      - name: Validate full Level 1 generators
         run: |
-          python3 -m py_compile scripts/build-mvs-visual-assets.py scripts/build_premium_opening_v5.py
-          python3 scripts/build_premium_opening_v5.py --help >/dev/null
+          python3 -m py_compile scripts/build-mvs-visual-assets.py scripts/build_level1_full.py scripts/build_level1_full_v2.py
+          python3 scripts/build_level1_full_v2.py --help >/dev/null
+          bash -n scripts/prepare-ngdevkit-project.sh
       - name: Build and fuzz core
         run: make test
