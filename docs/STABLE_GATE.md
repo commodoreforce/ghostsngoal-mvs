@@ -34,3 +34,20 @@ The project must not be called a stable MAME ROM until every item below passes.
 - [ ] no invalid sprite/tile accesses
 - [ ] no audio queue overflow
 - [ ] no progression deadlocks
+
+
+## Level 1 Content R4 gate (separate from full-game production readiness)
+
+The checked-in R4 release requires the following for its exact cartridge hash:
+
+- Native title-to-boss-to-tally-to-five-penalties input-only traversal.
+- Native functional and all-crate/item/power/score/enemy-rule fixture suites.
+- Continuous 110000-video-frame soak, with at least 100 coin/start cycles;
+  first 100 cycle endings use explicit fixtures, subsequent input play is natural.
+- Recorded cold intro and all 16 other Z80/YM2610 effects/themes.
+- Generated sprite packing offsets, C-ROM capacity, palette readback, ELF/P1,
+  cartridge/MAME hashes and tested prebuilt launcher.
+
+Read the bundle's validation logs/results for actual counts and scope. Completing
+this first-level gate does not certify the absent levels/characters, every BIOS,
+real MVS hardware or perfect visual equivalence with browser rendering.

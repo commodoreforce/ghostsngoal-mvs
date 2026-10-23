@@ -99,13 +99,14 @@ else
   echo "Serve ffmpeg o sox per convertire intro.mp3" >&2; exit 1
 fi
 
-"$PYTHON_BIN" "$ROOT/scripts/build-mvs-audio.py" "$TARGET/assets/audio"
+"$PYTHON_BIN" "$ROOT/scripts/build-mvs-audio.py" "$TARGET/assets/audio" "$UPSTREAM"
 echo "Preflight ngdevkit tools:"
 "$PYTHON_BIN" "$NGDK_TOOLSDIR/tiletool.py" --help >/dev/null
 "$PYTHON_BIN" -c 'import PIL, ruamel.yaml, yaml, sys; print("  Python",sys.version.split()[0],"+ Pillow + ruamel.yaml + PyYAML OK")'
 "$PYTHON_BIN" -m py_compile "$ROOT/scripts/build-mvs-visual-assets.py" "$ROOT/scripts/build_level1_full.py" "$ROOT/scripts/build_level1_full_v2.py"
 
 echo
+cp "$ROOT/mvs/level1_content.h" "$ROOT/mvs/level1_penalty.h" "$TARGET/src/"
 echo "Building Ghosts n Goals FULL LEVEL 1 assets from web reference $UPSTREAM_SHA"
 "$PYTHON_BIN" "$ROOT/scripts/build_level1_full_v2.py" "$UPSTREAM" "$TARGET"
 

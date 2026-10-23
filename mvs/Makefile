@@ -39,7 +39,7 @@ $(BUILDDIR)/main.o: $(SOUND_COMMANDS)
 $(SROM1): $(BUILDDIR)/assets/base-srom-text-shadow.fix
 
 # FULL LEVEL 1 C-ROM order. MUST match scripts/build_level1_full.py.
-GNG_GFX=sky city stadium_back stadium_front stadium_blend1 stadium_blend2 stadium_blend3 inside0 inside1 ground fg_cemetery player player_naked zombie bat pumpkin ghost maz ball mazfx wave particles rain title
+include assets/gng-gfx.mk
 $(CROM1): $(BUILDDIR)/assets/base-crom-logo.c1 $(GNG_GFX:%=$(BUILDDIR)/assets/gng_%.c1)
 $(CROM2): $(BUILDDIR)/assets/base-crom-logo.c2 $(GNG_GFX:%=$(BUILDDIR)/assets/gng_%.c2)
 
@@ -57,3 +57,5 @@ $(SOUND_COMMANDS): assets/music-map.yaml assets/sample-map.yaml
 generate-sound: $(Z80_SAMPLES_IN_VROM) $(Z80_SOUND_COMMANDS) $(SOUND_COMMANDS)
 .PHONY: generate-sound
 CUSTOM_GENERATE_TARGETS=generate-sound
+
+$(BUILDDIR)/main.o: src/level1_content.h src/level1_penalty.h src/level1_assets.h src/level1_audio.h

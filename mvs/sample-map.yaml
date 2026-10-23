@@ -27,3 +27,43 @@
     channel: 5
     name: stage_clear
     uri: file://assets/audio/stage_clear.wav
+- adpcm_a:
+    channel: 5
+    name: pickup
+    uri: file://assets/audio/pickup.wav
+- adpcm_a:
+    channel: 5
+    name: crate
+    uri: file://assets/audio/crate.wav
+- adpcm_a:
+    channel: 5
+    name: power
+    uri: file://assets/audio/power.wav
+- adpcm_a:
+    channel: 5
+    name: one_up
+    uri: file://assets/audio/one_up.wav
+- adpcm_a:
+    channel: 5
+    name: checkpoint
+    uri: file://assets/audio/checkpoint.wav
+- adpcm_a:
+    channel: 5
+    name: charge
+    uri: file://assets/audio/charge.wav
+- adpcm_a:
+    channel: 5
+    name: time_tick
+    uri: file://assets/audio/time_tick.wav
+- adpcm_a:
+    channel: 4
+    name: boss_loop
+    uri: file://assets/audio/boss_loop.wav
+- adpcm_a:
+    channel: 4
+    name: boost_loop
+    uri: file://assets/audio/boost_loop.wav
+- adpcm_a:
+    channel: 5
+    name: thunder
+    uri: file://assets/audio/thunder.wav

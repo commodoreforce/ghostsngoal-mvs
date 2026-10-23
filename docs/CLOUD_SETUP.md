@@ -84,3 +84,21 @@ resulting release ZIP and SHA256 separately. Rebuilding changes the ZIP digest;
 rerun validation before packaging a new artifact.
 
 See README.md and CODEX_HANDOFF.md for remaining gameplay/presentation work.
+
+
+## Level 1 Content R4 checks
+
+The required native scenarios now also include content rules, long-run state
+cycling and all audio cues, in addition to the original traversal/checks/intro:
+
+```sh
+python3 scripts/test-mame-level1.py --scenario content --pluginspath /workspace/tools/debian/usr/share/games/mame/plugins
+python3 scripts/test-mame-level1.py --scenario soak --pluginspath /workspace/tools/debian/usr/share/games/mame/plugins
+python3 scripts/test-mame-audio-cues.py --pluginspath /workspace/tools/debian/usr/share/games/mame/plugins
+```
+
+The soak runs over 30 **emulated** minutes with no throttle, typically a few
+minutes of wall time. Its first 100 cycle endings use explicit RAM fixtures;
+it is not an unassisted playthrough. Each run writes separate evidence. The
+reference checkout remains read-only; audio synthesis reads its original note
+patterns during preparation. Generated graphics-order metadata is required.

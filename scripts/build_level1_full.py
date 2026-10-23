@@ -7,8 +7,9 @@ import json
 import math
 import sys
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 from level1_geometry import read_level, scenery, c_geometry
+from level1_item_art import item_atlas, score_atlas, checkpoint_flag
 
 HERE = Path(__file__).resolve().parent
 BASE_PATH = HERE / "build-mvs-visual-assets.py"
@@ -112,6 +113,27 @@ def quantize_animation(img,count,cw,ch,first):
     out.info['transparency']=0
     return out,palettes,pmap
 
+def quantize_background_pair(first_image,second_image,slot_first,grid_cols,grid_rows):
+    """Keep both crowd drawings on identical palettes, avoiding 1344 palette
+    writes on every beat. Only actual tile graphics change at runtime."""
+    width,height=first_image.size;tw=width//16;th=height//16
+    ctw=math.ceil(tw/grid_cols);cth=math.ceil(th/grid_rows)
+    outputs=[Image.new('P',(width,height),0) for _ in range(2)]
+    for image in outputs:image.putpalette(base.neutral_gif_palette())
+    palettes=[];pmap=[0]*(tw*th)
+    for ty in range(0,th,cth):
+        for tx in range(0,tw,ctw):
+            box=(tx*16,ty*16,min(tw,tx+ctw)*16,min(th,ty+cth)*16)
+            w,h=box[2]-box[0],box[3]-box[1]
+            pair=Image.new('RGBA',(w,h*2));pair.paste(first_image.crop(box),(0,0));pair.paste(second_image.crop(box),(0,h))
+            q,alpha,palette=opaque_quantize_region(pair,False);slot=slot_first+len(palettes);palettes.append(palette)
+            for variant in range(2):
+                for y in range(h):
+                    for x in range(w):outputs[variant].putpixel((box[0]+x,box[1]+y),q.getpixel((x,variant*h+y))+1)
+            for row in range(ty,min(th,ty+cth)):
+                for col in range(tx,min(tw,tx+ctw)):pmap[row*tw+col]=slot
+    return outputs,palettes,pmap
+
 def c_pal(name,pals):
     rows=["    { "+", ".join(f"0x{x:04x}" for x in p)+" }" for p in pals]; return f"static const unsigned short {name}[{len(pals)}][16] = {{\n"+",\n".join(rows)+"\n};\n"
 def c_u8(name,vals):
@@ -127,6 +149,9 @@ def build(upstream:Path,target:Path):
     outdoor=sky.copy();outdoor.alpha_composite(city)
     raw.append(('SKY',sky,False,(8,7),None))
     raw.append(('CITY',outdoor,False,(8,7),None))
+    def lightning(image):
+        tint=Image.new('RGBA',image.size,(200,192,255,72));result=image.copy();result.alpha_composite(tint);return result
+    raw.append(('CITY_FLASH',lightning(outdoor),False,(8,7),None))
     back=fit_background(bgs/'l1_stadio_retro.png')
     front=fit_background(bgs/'l1_stadio_ingresso.png')
     raw.append(('STADIUM_BACK',back,True,(8,7),None))
@@ -145,12 +170,25 @@ def build(upstream:Path,target:Path):
         composite=sky.resize(inside.size,Image.Resampling.NEAREST)
         composite.alpha_composite(city,(20,-30));composite.alpha_composite(inside)
         raw.append((name,composite,False,(12,7),None))
+        raw.append((name+'_DARK',ImageEnhance.Brightness(composite).enhance(.32),False,(12,7),None))
+        raw.append((name+'_FLASH',lightning(composite),False,(12,7),None))
+    for i in range(4):raw.append((f'PEN_BG{i}',fit_background(bgs/f'pen_bg{i}.png'),False,(8,7),None))
     # World layers use tiny fixed palettes: they are deliberately authored in only a few colours.
     raw.append(('GROUND',make_world_ground(),True,(4,1),None)); raw.append(('FG_CEMETERY',scenery(level,WORLD_W),True,(8,2),None))
-    actor_defs=[('PLAYER',spr/'pl_shpendi_base.png',manifest['shpendi']),('PLAYER_NAKED',spr/'pl_shpendi_naked.png',manifest['shpendi']),('ZOMBIE',spr/f"{enemies['zombie']['sheet']}.png",enemies['zombie']),('BAT',spr/f"{enemies['bat']['sheet']}.png",enemies['bat']),('PUMPKIN',spr/f"{enemies['pumpkin']['sheet']}.png",enemies['pumpkin']),('GHOST',spr/f"{enemies['ghost']['sheet']}.png",enemies['ghost']),('MAZ',spr/f"{enemies['mazapegul']['sheet']}.png",enemies['mazapegul'])]
+    actor_defs=[('PLAYER',spr/'pl_shpendi_base.png',manifest['shpendi']),('PLAYER_NAKED',spr/'pl_shpendi_naked.png',manifest['shpendi']),('PLAYER_GOLD',spr/'pl_shpendi_gold.png',manifest['shpendi']),('ZOMBIE',spr/f"{enemies['zombie']['sheet']}.png",enemies['zombie']),('BAT',spr/f"{enemies['bat']['sheet']}.png",enemies['bat']),('PUMPKIN',spr/f"{enemies['pumpkin']['sheet']}.png",enemies['pumpkin']),('GHOST',spr/f"{enemies['ghost']['sheet']}.png",enemies['ghost']),('MAZ',spr/f"{enemies['mazapegul']['sheet']}.png",enemies['mazapegul']),('PEN_KEEPER',spr/'en_pk_ghostkeeper.png',enemies['pk_ghostkeeper']),('PEN_KICKER',spr/'en_pk_shpendi.png',enemies['pk_shpendi'])]
     actor_meta={}
     for name,path,meta in actor_defs:
-        im=Image.open(path).convert('RGBA'); count=len(meta['frames']); fw=int(meta['frameWidth']); fh=int(meta['frameHeight']); sheet,cw,ch=frame_sheet(im,fw,fh,count); actor_meta[name]=(meta,sheet,cw,ch); raw.append((name,sheet,True,None,(count,cw,ch)))
+        im=Image.open(path).convert('RGBA');meta=dict(meta);meta['frames']=list(meta['frames']);fw=int(meta['frameWidth']);fh=int(meta['frameHeight'])
+        if name=='GHOST':
+            expanded=Image.new('RGBA',(im.width+fw*2,fh));expanded.alpha_composite(im)
+            for fi in range(2):
+                faded=im.crop((fi*fw,0,(fi+1)*fw,fh))
+                for y in range(fh):
+                    for x in range(fw):
+                        if (x//2+3*(y//2))%4:faded.putpixel((x,y),(0,0,0,0))
+                expanded.alpha_composite(faded,(im.width+fi*fw,0))
+            im=expanded;meta['frames']+=['fade0','fade1']
+        count=len(meta['frames']);sheet,cw,ch=frame_sheet(im,fw,fh,count); actor_meta[name]=(meta,sheet,cw,ch); raw.append((name,sheet,True,None,(count,cw,ch)))
     ball=base.make_ball();spin=Image.new('RGBA',(64,16))
     # Spin the leather patches in logical space; keep the ball's silhouette fixed.
     patches=[(x,y) for y in range(16) for x in range(16) if ball.getpixel((x,y))==(20,20,24,255)]
@@ -167,6 +205,17 @@ def build(upstream:Path,target:Path):
     fxmeta=enemies['mazfx'];fx,cw,ch=frame_sheet(Image.open(spr/(fxmeta['sheet']+'.png')),28,24,5)
     actor_meta['MAZFX']=(fxmeta,fx,cw,ch)
     raw.append(('MAZFX',fx,True,None,(5,cw,ch)))
+    goldball=spin.copy()
+    for y in range(16):
+        for x in range(64):
+            r,g,b,a=goldball.getpixel((x,y))
+            if a:goldball.putpixel((x,y),(255,210,63,a) if r>100 else (138,90,10,a))
+    largegold=Image.new('RGBA',(128,32))
+    for i in range(4):largegold.alpha_composite(goldball.crop((i*16,0,i*16+16,16)).resize((24,24),Image.Resampling.NEAREST),(i*32+4,4))
+    raw.append(('GOLD_BALL',largegold,True,None,(4,32,32)))
+    raw.append(('ITEMS',item_atlas(spr),True,None,(8,32,32)))
+    raw.append(('FLAG',checkpoint_flag(),True,None,None))
+    raw.append(('SCOREPOP',score_atlas(upstream),True,None,(16,16,16)))
     # Native equivalents of the procedural web mazfx/shoe and wave textures.
     wave=Image.new('RGBA',(10,22));wd=ImageDraw.Draw(wave)
     for k in range(3):wd.rectangle((k*3,2+k*2,k*3+1,19-k*2),fill='#ffffff' if k==0 else '#9fe8ff')
@@ -189,6 +238,16 @@ def build(upstream:Path,target:Path):
     wd=ImageDraw.Draw(weather)
     for k in range(6):wd.point((8-k//3,k+3),fill=(55+k*5,61+k*5,86+k*6,255))
     raw.append(('RAIN',weather,True,None,None))
+    # Dithered fog and eyes share the final hardware palette. Weather textures
+    # intentionally drift/repeat, as they do in the web weather system.
+    fog=Image.new('RGBA',(80,32));fd=ImageDraw.Draw(fog)
+    for y in range(32):
+        for x in range(64):
+            density=max(0,10-abs(y-16))
+            if ((x*17+y*29+x*y)%64)<density:
+                fd.point((x,y),fill=(56+y//3,52+y//3,72+y//3,255))
+    fd.rectangle((68,5,69,6),fill='#ffffff');fd.rectangle((74,5,75,6),fill='#ffffff')
+    raw.append(('FOG',fog,True,None,(1,80,32)))
     title=Image.new('RGBA',(256,112));td=ImageDraw.Draw(title)
     for text,y,size,color in (('GHOSTS',4,24,'#f4f4f0'),("'N",42,16,'#ff7a1a'),('GOALS',70,24,'#f4f4f0')):
         font=ImageFont.truetype(str(upstream/'server/lib/fonts/PressStart2P.ttf'),size)
@@ -196,8 +255,11 @@ def build(upstream:Path,target:Path):
         td.text((x+2,y+2),text,font=font,fill='#160b16',stroke_width=3,stroke_fill='#160b16')
         td.text((x,y),text,font=font,fill=color,stroke_width=2,stroke_fill='#5a1a00')
     raw.append(('TITLE',title,True,None,None))
+    raw.append(('PANEL',Image.new('RGBA',(16,16),'#16161c'),True,None,(1,16,16)))
     tile_cursor=CROM_BASE_TILE; pal_cursor=148; # FIX text owns palettes 0, 1 and 2.
     built=[]
+    raw_images={name:rgba for name,rgba,_,_,_ in raw}
+    paired={}
     class A:pass
     for name,rgba,transparent,grid,actor in raw:
         if actor is None and name not in ('BALL','RAIN'):rgba,lw=base.project_rgba(rgba)
@@ -207,16 +269,40 @@ def build(upstream:Path,target:Path):
             pad=Image.new('RGBA',(((rgba.width+15)//16)*16,((rgba.height+15)//16)*16),(0,0,0,0)); pad.alpha_composite(rgba,(0,0)); rgba=pad
         # Background banks are mutually exclusive and uploaded on scene changes.
         # A: sky/city/interior, slots 3..98. B: stadium, slots 99..147.
-        first=3 if name in ('SKY','CITY','INSIDE0','INSIDE1') else 99 if name.startswith('STADIUM_') else pal_cursor
-        if actor:
-            quantizer=quantize_frames if name.startswith('PLAYER') else quantize_animation
+        if name in ('SKY','CITY','CITY_FLASH') or name.startswith('INSIDE') or name.startswith('PEN_BG'):first=3
+        elif name.startswith('STADIUM_') or name=='PEN_KEEPER':first=99
+        elif name=='PEN_KICKER':first=103
+        elif name=='PLAYER_GOLD':first=168
+        elif name=='ITEMS':first=87
+        elif name in ('FLAG','PANEL'):first=89
+        elif name=='SCOREPOP':first=95
+        elif name=='GOLD_BALL':first=96
+        else:first=pal_cursor
+        if name in ('FLAG','PANEL'):
+            # Reuse the shirt palette, including its white/grey/black entries.
+            qp,_,hw=opaque_quantize_region(raw_images['ITEMS'].crop((64,0,96,32)),True)
+            q=rgba.convert('RGB').quantize(palette=qp,dither=Image.Dither.NONE)
+            indexed=Image.new('P',rgba.size,0);indexed.putpalette(base.neutral_gif_palette())
+            for y in range(rgba.height):
+                for x in range(rgba.width):
+                    if rgba.getpixel((x,y))[3]>=96:indexed.putpixel((x,y),q.getpixel((x,y))+1)
+            indexed.info['transparency']=0;pals=[hw];pmap=[first]*(rgba.width//16)*(rgba.height//16)
+        elif actor:
+            quantizer=quantize_frames if name.startswith('PLAYER') or name=='ITEMS' else quantize_animation
             indexed,pals,pmap=quantizer(rgba,actor[0],actor[1],actor[2],first)
+        elif name.startswith('INSIDE'):
+            group=name.replace('INSIDE0','INSIDE').replace('INSIDE1','INSIDE')
+            if group not in paired:
+                a,_=base.project_rgba(raw_images[group.replace('INSIDE','INSIDE0',1)])
+                b,_=base.project_rgba(raw_images[group.replace('INSIDE','INSIDE1',1)])
+                paired[group]=quantize_background_pair(a,b,first,*grid)
+            images,pals,pmap=paired[group];indexed=images[1 if name.startswith('INSIDE1') else 0]
         elif grid:indexed,pals,pmap=base.quantize_grid(rgba,transparent,first,*grid)
         else:indexed,pals,pmap=base.quantize_single(rgba,transparent,first)
         if first+len(pals)>256:raise ValueError(f"palette budget exceeded at {name}: {pal_cursor}+{len(pals)}")
         fn='gng_'+name.lower()+'.gif'; base.save_indexed(indexed,ad/fn,transparent); a=A();a.name=name;a.filename=fn;a.tile_base=tile_cursor;a.cols=rgba.width//16;a.rows=rgba.height//16;a.width=rgba.width;a.height=rgba.height;a.logical_width=lw;a.pal_first=first;a.palettes=pals;a.palmap=pmap;built.append(a);tile_cursor+=a.cols*a.rows
-        if first>=148:pal_cursor+=len(pals)
-        elif first==3 and len(pals)>96:raise ValueError('Scene bank A overflow')
+        if first>=148 and name!='PLAYER_GOLD':pal_cursor+=len(pals)
+        elif first==3 and len(pals)>84:raise ValueError('Scene bank A overflow')
         elif first==99 and len(pals)>49:raise ValueError('Scene bank B overflow')
     # Each C-ROM pair encodes 128 bytes per tile (64 bytes per chip).
     # Fail before Makefile truncate could silently remove generated graphics.
@@ -225,11 +311,36 @@ def build(upstream:Path,target:Path):
     h=['#ifndef GNG_LEVEL1_ASSETS_H','#define GNG_LEVEL1_ASSETS_H','',f'#define GNG_LOGICAL_W {LOGICAL_W}',f'#define GNG_SCREEN_W {SCREEN_W}',f'#define GNG_SCREEN_H {SCREEN_H}',f'#define GNG_LEVEL1_WORLD_W {WORLD_W}',f'#define GNG_X_NUM {X_NUM}',f'#define GNG_X_DEN {X_DEN}','']
     for a in built:
         p='GNG_'+a.name;h += [f'#define {p}_TILE {a.tile_base}',f'#define {p}_COLS {a.cols}',f'#define {p}_ROWS {a.rows}',f'#define {p}_W {a.width}',f'#define {p}_H {a.height}',f'#define {p}_PAL_FIRST {a.pal_first}',f'#define {p}_PAL_COUNT {len(a.palettes)}',c_pal(p+'_PALETTES',a.palettes),c_u8(p+'_PALMAP',a.palmap)]
+    fg=next(a for a in built if a.name=='FG_CEMETERY')
+    mask=Image.open(ad/fg.filename)
+    tops=[];heights=[]
+    for col in range(fg.cols):
+        ys=[y for y in range(mask.height) if any(mask.getpixel((col*16+x,y)) for x in range(16))]
+        top=min(ys)//16 if ys else 0;bottom=max(ys)//16+1 if ys else 0
+        tops.append(top);heights.append(bottom-top)
+    h.extend((c_u8('GNG_FG_TOP',tops),c_u8('GNG_FG_HEIGHT',heights)))
+    for asset in built:
+        if asset.name in ('GROUND','FG_CEMETERY','ZOMBIE','BAT','PUMPKIN','GHOST'):
+            dark=[]
+            for palette in asset.palettes:
+                dark.append([v if i==0 else 0x8000|((((v>>8)&15)*2//5)<<8)|((((v>>4)&15)*2//5)<<4)|((v&15)*2//5) for i,v in enumerate(palette)])
+            h.append(c_pal('GNG_'+asset.name+'_DARK_PALETTES',dark))
     for name,(meta,sheet,cw,ch) in actor_meta.items():
         h += [f'#define GNG_{name}_FRAME_COUNT {len(meta["frames"])}',f'#define GNG_{name}_CELL_W {cw}',f'#define GNG_{name}_CELL_H {ch}',f'#define GNG_{name}_FRAME_COLS {cw//16}',f'#define GNG_{name}_FRAME_ROWS {ch//16}']
         for i,n in enumerate(meta['frames']):h.append(f'#define GNG_{name}_FRAME_{n.upper()} {i}')
+        boxes=[]
+        for fi in range(len(meta['frames'])):
+            bbox=sheet.crop((fi*cw,0,(fi+1)*cw,ch)).getchannel('A').getbbox() or (cw//2,0,cw//2+1,1)
+            l,t,r,b=bbox;boxes.append(((l-cw//2)*4//5,t,(r-cw//2)*4//5,b))
+        h.append('static const short GNG_'+name+'_SHOTBOX[][4]={'+','.join('{%d,%d,%d,%d}'%box for box in boxes)+'};')
         h.append('')
+    h.append(c_pal('GNG_MIDAS_PALETTE',[[0x8000]+[base.neogeo_color((min(255,120+i*9),min(230,72+i*10),min(100,10+i*5))) for i in range(15)]]))
+    h.append(c_pal('GNG_HIT_PALETTE',[[0x8000]+[base.neogeo_color((255,255,255))]*15]))
     h.extend(c_geometry(level));h.append('#endif');(sd/'level1_assets.h').write_text('\n'.join(h)+'\n')
+    # One source of truth for C-ROM concatenation order. Reordering generated
+    # scenes must never make the native tile addresses point at another asset.
+    (ad/'gng-gfx.mk').write_text('GNG_GFX='+' '.join(a.name.lower() for a in built)+'\n')
+    (ad/'graphics-manifest.json').write_text(json.dumps({'base_tile':CROM_BASE_TILE,'total_tiles':tile_cursor,'assets':[{'name':a.name.lower(),'tile_base':a.tile_base,'cols':a.cols,'rows':a.rows,'palette_first':a.pal_first,'palette_count':len(a.palettes)} for a in built]},indent=2)+'\n')
     print('Generated FULL LEVEL 1 MVS assets:')
     for a in built:print(f'  {a.name:14s} {a.width}x{a.height} palettes={len(a.palettes)} tiles={a.cols*a.rows}')
     print(f'  world={WORLD_W} logical px, palette slots used={pal_cursor-1}/255');print('  exact ground spans + zombie/bat/pumpkin/ghost/Mazapegul assets')

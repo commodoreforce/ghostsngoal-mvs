@@ -11,7 +11,7 @@ local function expect(ok,name)
  if ok then print('CHECK',name) else print('CHECK_FAIL',name);manager.machine:exit() end
 end
 local function position(x,y)
- m:write_u32(sym.player_x_fp,x*256);m:write_u32(sym.player_y_fp,y*256)
+ m:write_u32(sym.player_x_fp,x*256);m:write_u32(sym.player_y_fp,y*256);m:write_u16(sym.player_x,x);m:write_u16(sym.player_y,y)
  m:write_u32(sym.player_vx_fp,0);m:write_u32(sym.player_vy_fp,0)
  m:write_u8(sym.player_ground,0);m:write_u8(sym.invuln,0)
 end
@@ -26,6 +26,7 @@ local function ball_count()
  local n=0;for i=0,2 do if m:read_u8(sym.balls+i*20+10)>0 then n=n+1 end end;return n
 end
 emu.register_frame_done(function()
+ if u8('death_timer')>0 and u8('lives')>0 then return end
  f=f+1
  p[':AUDIO_COIN'].fields['Coin 1']:set_value(((f>=180 and f<184) or (f>=1000 and f<1005)) and 1 or 0)
  p[':edge:joy:START'].fields['1 Player Start']:set_value(((f>=210 and f<216) or (f>=1030 and f<1036)) and 1 or 0)

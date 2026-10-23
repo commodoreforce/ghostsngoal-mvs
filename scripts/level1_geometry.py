@@ -7,10 +7,11 @@ from PIL import Image, ImageDraw, ImageFont
 def read_level(upstream):
     source = (upstream / 'game/src/levels/level1.js').read_text()
     result = {}
-    for name in ('blocks', 'planks'):
+    for name in ('blocks', 'planks', 'crates'):
         literal = re.search(r'\b' + name + r':\s*(\[.*?\n  \])', source, re.S)[1]
-        literal = re.sub(r'\b(x|row|w):', r'"\1":', literal)
+        literal = re.sub(r'\b(x|row|w|item):', r'"\1":', literal)
         result[name] = ast.literal_eval(literal)
+    result['pumpkins']=ast.literal_eval(re.search(r'\bpumpkins:\s*(\[.*?\n  \])',source,re.S)[1])
     for name in ('graves', 'bigGraves', 'lamps', 'goals'):
         result[name] = ast.literal_eval(re.search(r'\b' + name + r':\s*(\[[^\]]*\])', source)[1])
     for name in ('ledFrom','ledTo','ledStep','checkpoint'):
@@ -68,7 +69,7 @@ def scenery(level, width):
         d.text((x+(96-(box[2]-box[0]))//2,y+1),text,font=font,fill='#ff7a1a')
         for dy in range(2,13,2):rect(x+1,y+dy,94,1,'#100b0c')
     x=level['checkpoint']*16-6
-    rect(x+1,176,2,32,'#c9c9d2');rect(x+3,178,9,7,'#f4f4f0');rect(x+3,181,9,4,'#16161c')
+    rect(x+1,176,2,32,'#505058');rect(x+3,178,9,7,'#626268');rect(x+3,181,9,4,'#09090c')
     return image
 
 
@@ -81,4 +82,11 @@ def c_geometry(level):
         lines.append(f'#define {prefix}_COUNT {len(level[name])}')
         rows = ','.join('{%d,%d,%d}' % (b['x']*16,b['row']*16,b['w']*16) for b in level[name])
         lines.append(f'static const short {prefix}[][3] = {{{rows}}};')
+    kinds={'pumpkinGold':2,'shirt':3,'piadina':4,'seahorse':5}
+    rows=','.join('{%d,%d,%d}'%(c['x']*16+8,c['row']*16,kinds[c['item']]) for c in level['crates'])
+    lines.append(f'#define GNG_CRATE_COUNT {len(level["crates"])}')
+    lines.append('static const short GNG_CRATES[][3]={'+rows+'};')
+    rows=','.join('{%d,%d}'%(x*16+8,y*16+8) for x,y in level['pumpkins'])
+    lines.append(f'#define GNG_PUMPKIN_COUNT {len(level["pumpkins"])}')
+    lines.append('static const short GNG_PUMPKINS[][2]={'+rows+'};')
     return lines

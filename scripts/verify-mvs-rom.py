@@ -16,7 +16,7 @@ def verify(project):
     rom = build / 'rom'
     elf = build / 'rom.elf'
     cart = rom / 'gngl1r1.zip'
-    for marker in (b'FULL LEVEL 1 R1', b'MAZAPEGUL', b'VISUAL REVISION 3'):
+    for marker in (b'FULL LEVEL 1 R1', b'MAZAPEGUL', b'LEVEL 1 CONTENT R4'):
         if marker not in elf.read_bytes():
             raise ValueError(f'ELF marker missing: {marker!r}')
     software = ET.parse(rom / 'neogeo.xml').find("software[@name='gngl1r1']")
@@ -43,6 +43,23 @@ def verify(project):
                     or int(entry['crc'], 16) != zlib.crc32(data)):
                 raise ValueError(f'MAME hash mismatch: {name}')
             hashes[name] = hashlib.sha256(data).hexdigest()
+    # Verify that every converted sprite was packed at its declared tile
+    # address. Chip/ZIP checks alone cannot detect a wrong concatenation order.
+    gfx=json.loads((project/'assets/graphics-manifest.json').read_text())
+    for chip in ('c1','c2'):
+        graphics=bytearray((build/f'assets/base-crom-logo.{chip}').read_bytes())
+        for asset in gfx['assets']:
+            if len(graphics)!=asset['tile_base']*64:
+                raise ValueError(f'Graphics tile offset mismatch: {asset["name"]}')
+            converted=(build/f'assets/gng_{asset["name"]}.{chip}').read_bytes()
+            if len(converted)!=asset['cols']*asset['rows']*64:
+                raise ValueError(f'Converted graphics size mismatch: {asset["name"]}')
+            graphics.extend(converted)
+        if len(graphics)>2097152:
+            raise ValueError('Graphics exceed C-ROM capacity')
+        graphics.extend(bytes(2097152-len(graphics)))
+        if graphics!=(rom/f'gngl1r1-{chip}.{chip}').read_bytes():
+            raise ValueError(f'Packed graphics differ from generated tile order: {chip}')
     # Recreate P1 directly from this ELF, then apply Neo Geo word swapping.
     with tempfile.TemporaryDirectory() as temporary:
         binary = Path(temporary) / 'p1.bin'
@@ -56,7 +73,7 @@ def verify(project):
     hashes['rom.elf'] = hashlib.sha256(elf.read_bytes()).hexdigest()
     hashes['gngl1r1.zip'] = hashlib.sha256(cart.read_bytes()).hexdigest()
     (build / 'verified-rom-sha256.json').write_text(json.dumps(hashes, indent=2) + '\n')
-    print('Verified ELF -> P1 -> cartridge ZIP -> MAME CRC/SHA1; SHA256 manifest saved.')
+    print('Verified graphics tile order, ELF -> P1 -> cartridge ZIP -> MAME CRC/SHA1; SHA256 manifest saved.')
 
 
 if __name__ == '__main__':

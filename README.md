@@ -25,10 +25,40 @@ built-in hashes. MAME reports warnings about **BIOS** files `sp-s2.sp1`,
 `sm1.sm1` and `sfix.sfix`; the cartridge has its own checked software-list
 CRC/SHA1 hashes. The bundle includes BIOS source/license references.
 
-## Current: visual revision 3
+## Current: Level 1 Content R4
 
-Update with `git pull --ff-only origin main`, then launch as above. The title
-and launcher identify **VISUAL REVISION 3**. The checked-in bundle is rebuilt
+The checked-in ROM now completes the **Shpendi Level 1 route and its penalty
+bonus**. The title and launcher show **LEVEL 1 CONTENT R4**.
+
+- All 8 authored breakable crates and 20 placed pumpkins; golden pumpkins,
+  shirts, piadinas, seahorses and enemy drops, with collection/expiry physics.
+- Re Mida gold sprites, 11-second power, larger piercing gold balls, seven-ball
+  autofire, score multiplier and expiry feedback; charged shots and shot buffer.
+- Correct enemy point values, combo ×4, score extra lives, timer, armor/HUD,
+  damage/KO/respawn, checkpoint flag and native high-score backup data.
+- Announced zombie slides/bat dives, cracked pumpkins and faded ghosts; shot
+  collisions use actual sprite bounds. Player movement stays the established
+  model, with the source's speed increase while powered up.
+- Boss fight, flying cap/capless escape, individual time/accuracy/no-damage
+  tally, then **five playable penalties** and a real Level 1 completion panel.
+- Native web-note level/boss themes, boost music, item/score/weather sounds,
+  rain/fog/lightning and cycling stadium lights. Shared crowd palettes,
+  sprite/HUD caches and precomputed light palettes reduce runtime work.
+
+See [the complete content/rules ledger](docs/LEVEL1_CONTENT.md) and
+[a selection of actual MAME frames](releases/level1-content-r4.gif). Packaging
+requires exact-ROM MAME traversal, functional/content fixtures, a 30-minute
+emulated soak with 100 coin/start cycles, cold intro and all 16 other native
+audio cues. Generated graphics order/tile offsets are now verified too.
+
+This release covers Shpendi's first level, not the full three-level/all-character
+web game. Native blending, some boss/motion details and other BIOS/hardware
+remain adaptations or unverified; a universal “perfect” rating is not claimed.
+
+## Previous visual revision 3
+
+Update with `git pull --ff-only origin main`, then launch as above. That historical title
+and launcher identified **VISUAL REVISION 3**. The current bundle is rebuilt
 and validated; no local toolchain or compilation is necessary.
 
 - Background conversion now uses 49 local palettes per exterior and 84 per
@@ -90,7 +120,7 @@ Omit `--build-only` to build, verify and launch MAME. `GNG_UPSTREAM` may point
 to an existing clean reference checkout at the pinned commit. See
 [cloud setup](docs/CLOUD_SETUP.md) for tool activation and validation.
 
-## R1 scope
+## Historical R1 scope
 
 The native runtime includes the title, original intro as YM2610 ADPCM-A,
 4192-pixel world, finite scenery, stone blocks, one-way planks, Shpendi with
@@ -104,7 +134,7 @@ native gameplay checks and a cold-boot recording compared with the intro
 source. Artifact validation compares the ELF-derived P1, ROM chips, cartridge
 ZIP and MAME hashes; generated SHA256 manifests identify the exact build.
 
-This is a playable Level 1 milestone, not final web parity. Collectible items,
-breakable crates, powers, weather/fog/fade effects and parts of enemy AI still
-differ or are absent. The release has not completed the production soak and
-all gates in [STABLE_GATE.md](docs/STABLE_GATE.md).
+The original R1 was a playable slice with missing collectibles/crates/powers.
+Content R4 above supersedes those omissions and adds the native content/soak
+gates. Full-game/all-hardware certification still follows
+[STABLE_GATE.md](docs/STABLE_GATE.md).
