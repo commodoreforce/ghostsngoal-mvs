@@ -11,8 +11,14 @@ echo "============================================================"
 
 cd "$ROOT"
 
+BUILD_ONLY=0
+case "${1:-}" in
+  --build-only) BUILD_ONLY=1 ;;
+  "") ;;
+  *) echo "Usage: $0 [--build-only]" >&2; exit 2 ;;
+esac
+
 # Always regenerate the ngdevkit project from the current repository.
-rm -rf "$TARGET"
 bash scripts/prepare-ngdevkit-project.sh
 
 fail() { echo; echo "BUILD R1 ABORTED: $*" >&2; exit 1; }
@@ -30,19 +36,6 @@ grep -q 'GNG_LEVEL1_WORLD_W' "$TARGET/main.c" || fail "old runtime copied: full 
 grep -q '^GAMEROM=gngl1r1$' "$TARGET/Makefile" || fail "wrong cartridge id; expected gngl1r1"
 grep -q '#define GNG_LEVEL1_WORLD_W 4192' "$TARGET/src/level1_assets.h" || fail "wrong world asset width; expected 4192"
 
-# Stamp the generated runtime visibly so there is zero ambiguity in MAME.
-python3 - "$TARGET/main.c" <<'PY'
-from pathlib import Path
-import sys
-p=Path(sys.argv[1])
-s=p.read_text()
-s=s.replace('ng_center_text(20,0,"CESENA FC - NEO GEO MVS");',
-            'ng_center_text(20,0,"FULL LEVEL 1 R1");')
-s=s.replace('ng_center_text(23,1,"5 COIN  /  1 START");',
-            'ng_center_text(23,1,"R1 - 13 WAVES - MAZAPEGUL");')
-p.write_text(s)
-PY
-
 grep -q 'FULL LEVEL 1 R1' "$TARGET/main.c" || fail "visible R1 stamp was not applied"
 
 echo
@@ -57,8 +50,6 @@ echo "  intro     : native ADPCM command present"
 echo
 echo "Rebuilding cartridge from zero..."
 cd "$TARGET"
-rm -rf build
-gmake generate
 gmake
 
 [ -f "build/rom.elf" ] || fail "build/rom.elf missing after compile"
@@ -67,13 +58,17 @@ gmake
 
 # Verify that the exact freshly compiled ELF carries the R1 stamp and gameplay.
 if command -v strings >/dev/null 2>&1; then
-  strings build/rom.elf | grep -q 'FULL LEVEL 1 R1' || fail "ELF is not R1: visible build stamp absent"
-  strings build/rom.elf | grep -q 'MAZAPEGUL' || fail "ELF is missing boss/runtime strings"
+  strings build/rom.elf > build/rom.strings
+  grep -q 'FULL LEVEL 1 R1' build/rom.strings || fail "ELF is not R1: visible build stamp absent"
+  grep -q 'MAZAPEGUL' build/rom.strings || fail "ELF is missing boss/runtime strings"
 fi
 
 echo
+python3 "$ROOT/scripts/verify-mvs-rom.py" "$PWD"
 echo "ROM verification: OK"
 echo "  $(pwd)/build/rom/gngl1r1.zip"
 echo
+if [ "$BUILD_ONLY" = 1 ]; then exit 0; fi
+
 echo "Launching ONLY the verified R1 cartridge..."
 exec gmake mame-mvs

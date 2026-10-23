@@ -5,25 +5,45 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$ROOT/.ngdevkit-examples"
 TARGET="$WORK/ghostsngoal-mvs"
 VENV="$ROOT/.venv-ngdevkit"
-UPSTREAM="$ROOT/.ghostsngoal-upstream"
+UPSTREAM="${GNG_UPSTREAM:-$ROOT/.ghostsngoal-upstream}"
 UPSTREAM_SHA="7d6d995aa32a6a3df23d23ca857852f85bdc99c2"
+EXAMPLES_SHA="4e7900b79b1555f9f1737549a49c26fbdb1aa589"
 
-if ! command -v brew >/dev/null 2>&1; then echo "Homebrew non trovato." >&2; exit 1; fi
-PYTHON_PREFIX="$(brew --prefix python@3.14 2>/dev/null || true)"
-PYTHON_BASE="$PYTHON_PREFIX/bin/python3.14"
-NGDEVKIT_PREFIX="$(brew --prefix ngdevkit 2>/dev/null || true)"
-NGDK_TOOLSDIR="$NGDEVKIT_PREFIX/libexec/bin"
-if [ -z "$PYTHON_PREFIX" ] || [ ! -x "$PYTHON_BASE" ]; then echo "Python 3.14 Homebrew non trovato. Esegui: brew install python@3.14" >&2; exit 1; fi
-if [ -z "$NGDEVKIT_PREFIX" ] || [ ! -f "$NGDK_TOOLSDIR/tiletool.py" ]; then echo "Tool Python ngdevkit non trovati: $NGDK_TOOLSDIR" >&2; exit 1; fi
-
-if [ ! -x "$VENV/bin/python" ]; then rm -rf "$VENV"; "$PYTHON_BASE" -m venv "$VENV"; fi
-"$VENV/bin/python" -m pip install --quiet --upgrade pip pillow ruamel.yaml PyYAML
+# Use a native ngdevkit installation on Linux; Homebrew is optional on macOS.
+PYTHON_BASE="${GNG_PYTHON:-$(command -v python3)}"
+if command -v brew >/dev/null 2>&1; then
+  NGDEVKIT_PREFIX="$(brew --prefix ngdevkit)"
+  export PKG_CONFIG_PATH="$NGDEVKIT_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+fi
+if ! pkg-config --exists ngdevkit; then
+  echo "ngdevkit non disponibile in pkg-config. Installare la toolchain ufficiale e impostare PATH/PKG_CONFIG_PATH." >&2
+  exit 1
+fi
+NGDK_TOOLSDIR="$(pkg-config --variable=bindir ngdevkit)"
+if [ -d "${NGDEVKIT_PREFIX:-}/libexec/bin" ]; then NGDK_TOOLSDIR="$NGDEVKIT_PREFIX/libexec/bin"; fi
+for tool in m68k-neogeo-elf-gcc z80-neogeo-ihx-sdasz80 z80-neogeo-ihx-sdldz80 autoreconf ffmpeg; do
+  command -v "$tool" >/dev/null || { echo "Prerequisito mancante: $tool" >&2; exit 1; }
+done
+"$PYTHON_BASE" -c 'import sys; assert sys.version_info >= (3,12), "Python >= 3.12 richiesto"'
+if [ ! -x "$VENV/bin/python" ]; then "$PYTHON_BASE" -m venv "$VENV"; fi
+"$VENV/bin/python" -m pip install --quiet 'Pillow==12.3.0' 'ruamel.yaml==0.18.16' 'PyYAML==6.0.3'
 PYTHON_BIN="$VENV/bin/python"
 
-if [ ! -d "$WORK/.git" ]; then git clone https://github.com/dciabrin/ngdevkit-examples.git "$WORK"; fi
-if [ ! -d "$UPSTREAM/.git" ]; then git clone https://github.com/commodoreforce/ghostsngoal.git "$UPSTREAM"; fi
-git -C "$UPSTREAM" fetch origin "$UPSTREAM_SHA" --depth 1
-git -C "$UPSTREAM" checkout --detach "$UPSTREAM_SHA"
+if [ ! -d "$WORK/.git" ]; then
+  git clone https://github.com/dciabrin/ngdevkit-examples.git "$WORK"
+  git -C "$WORK" checkout --detach "$EXAMPLES_SHA"
+fi
+if [ "$(git -C "$WORK" rev-parse HEAD)" != "$EXAMPLES_SHA" ]; then
+  echo "ngdevkit-examples deve essere al commit $EXAMPLES_SHA; nessun checkout esistente viene sovrascritto." >&2; exit 1
+fi
+if [ ! -d "$UPSTREAM/.git" ]; then
+  git clone https://github.com/commodoreforce/ghostsngoal.git "$UPSTREAM"
+  git -C "$UPSTREAM" checkout --detach "$UPSTREAM_SHA"
+fi
+# Never fetch, reset, or rewrite an existing reference checkout.
+if [ "$(git -C "$UPSTREAM" rev-parse HEAD)" != "$UPSTREAM_SHA" ] || [ -n "$(git -C "$UPSTREAM" status --porcelain)" ]; then
+  echo "Il riferimento READ-ONLY deve essere pulito al commit $UPSTREAM_SHA." >&2; exit 1
+fi
 
 cd "$WORK"
 git submodule update --init --recursive
@@ -62,37 +82,9 @@ cp "$ROOT/mvs/sample-map.yaml" "$TARGET/assets/sample-map.yaml"
 cp "$ROOT/mvs/music-map.yaml" "$TARGET/assets/music-map.yaml"
 cp "$ROOT/src/game.c" "$ROOT/src/game.h" "$ROOT/src/levels.c" "$ROOT/src/levels.h" "$ROOT/src/characters.c" "$ROOT/src/characters.h" "$TARGET/src/"
 
-# Normalize the runtime source for the installed ngdevkit exactly once.
-# This operation is idempotent: running preparation repeatedly cannot create CNT_START11, etc.
-"$PYTHON_BIN" - "$TARGET/main.c" <<'PY'
-from pathlib import Path
-import sys, re
-p = Path(sys.argv[1])
-s = p.read_text()
-s = re.sub(r'^#define\s+ADDR_SCB1\b.*\n', '', s, flags=re.M)
-s = re.sub(r'^#define\s+ADDR_SCB2\b.*\n', '', s, flags=re.M)
-s = re.sub(r'\bCNT_START\d*\b', 'CNT_START1', s)
-s = s.replace('camera_x_fp,GROUND_Y-16);draw_layer(SCB_FOREGROUND',
-              'camera_x_fp,GROUND_Y);draw_layer(SCB_FOREGROUND')
-p.write_text(s)
-
-# Fail here, before gcc, if normalization did not produce exactly the expected source.
-errors = []
-if re.search(r'^#define\s+ADDR_SCB[12]\b', s, flags=re.M):
-    errors.append('local ADDR_SCB1/ADDR_SCB2 definition still present')
-start_tokens = sorted(set(re.findall(r'\bCNT_START\d*\b', s)))
-if start_tokens != ['CNT_START1']:
-    errors.append(f'unexpected Start symbols: {start_tokens}')
-if 'CNT_START11' in s:
-    errors.append('CNT_START11 regression detected')
-if errors:
-    raise SystemExit('ngdevkit source normalization FAILED: ' + '; '.join(errors))
-print('  ngdevkit source normalization OK: CNT_START1, SCB registers from headers')
-PY
-
 # User-provided title/intro audio. Search common locations automatically.
 INTRO=""
-for p in "$ROOT/reference-packs/intro.mp3" "$ROOT/intro.mp3" "$HOME/Downloads/intro.mp3"; do
+for p in "${GNG_INTRO:-/nonexistent}" "$ROOT/reference-packs/intro.mp3" "$ROOT/intro.mp3" "$HOME/Downloads/intro.mp3" "$UPSTREAM/assets/audio/intro_master.mp3" "$UPSTREAM/game/public/audio/intro.mp3"; do
   if [ -f "$p" ]; then INTRO="$p"; break; fi
 done
 if [ -z "$INTRO" ] && [ -d "$HOME/Downloads" ]; then INTRO="$(find "$HOME/Downloads" -maxdepth 1 -iname 'intro*.mp3' -print -quit 2>/dev/null || true)"; fi
@@ -100,52 +92,14 @@ if [ -z "$INTRO" ]; then echo "ERRORE: intro.mp3 non trovato. Mettilo in referen
 
 echo "Intro audio: $INTRO"
 if command -v ffmpeg >/dev/null 2>&1; then
-  ffmpeg -loglevel error -y -i "$INTRO" -ac 1 -ar 22050 -sample_fmt s16 "$TARGET/assets/audio/intro.wav"
+  ffmpeg -loglevel error -y -i "$INTRO" -ac 1 -ar 18500 -sample_fmt s16 "$TARGET/assets/audio/intro.wav"
 elif command -v sox >/dev/null 2>&1; then
-  sox "$INTRO" -c 1 -r 22050 -b 16 "$TARGET/assets/audio/intro.wav"
+  sox "$INTRO" -c 1 -r 18500 -b 16 "$TARGET/assets/audio/intro.wav"
 else
   echo "Serve ffmpeg o sox per convertire intro.mp3" >&2; exit 1
 fi
 
-"$PYTHON_BIN" - "$TARGET/assets/audio" <<'PY'
-import math, wave, struct, random, sys
-from pathlib import Path
-out=Path(sys.argv[1]); sr=22050
-random.seed(0xC35E)
-def save(name,samples):
-    m=max(1e-6,max(abs(x) for x in samples)); scale=.82/m
-    with wave.open(str(out/name),'wb') as w:
-        w.setnchannels(1);w.setsampwidth(2);w.setframerate(sr)
-        w.writeframes(b''.join(struct.pack('<h',int(max(-1,min(1,x*scale))*32767)) for x in samples))
-def tone(freq,dur,kind='square',amp=.5):
-    n=int(sr*dur);a=[]
-    for i in range(n):
-        t=i/sr;s=math.sin(2*math.pi*freq*t)
-        if kind=='square':s=1 if s>=0 else -1
-        elif kind=='tri':s=2/math.pi*math.asin(s)
-        a.append(s*amp*(1-i/max(1,n)*.08))
-    return a
-def mix(dst,src,start,g=1):
-    k=int(start*sr)
-    if len(dst)<k+len(src):dst.extend([0.0]*(k+len(src)-len(dst)))
-    for i,v in enumerate(src):dst[k+i]+=v*g
-dur=15.5;music=[0.0]*int(sr*dur)
-notes=[110.00,130.81,164.81,196.00,164.81,130.81,98.00,123.47,146.83,196.00,146.83,123.47];step=.25
-for k in range(int(dur/step)):
-    f=notes[k%len(notes)];mix(music,tone(f,.19,'square',.20),k*step);mix(music,tone(f*2,.11,'tri',.11),k*step+.125)
-    if k%2==0:mix(music,tone(55,.07,'square',.22),k*step)
-    if k%4 in (1,3):
-        noise=[(random.random()*2-1)*.10*(1-i/(sr*.045)) for i in range(int(sr*.045))];mix(music,noise,k*step)
-save('level_loop.wav',music)
-save('kick.wav',tone(170,.10,'square',.7)+tone(100,.07,'tri',.4))
-save('hit.wav',tone(85,.15,'square',.8))
-save('enemy_die.wav',tone(260,.06,'square',.6)+tone(180,.08,'square',.5)+tone(100,.12,'tri',.45))
-save('boss_hit.wav',tone(70,.18,'square',.75)+tone(45,.16,'tri',.5))
-clear=[]
-for i,f in enumerate((261.63,329.63,392.00,523.25)):mix(clear,tone(f,.22,'square',.45),i*.16)
-save('stage_clear.wav',clear)
-PY
-
+"$PYTHON_BIN" "$ROOT/scripts/build-mvs-audio.py" "$TARGET/assets/audio"
 echo "Preflight ngdevkit tools:"
 "$PYTHON_BIN" "$NGDK_TOOLSDIR/tiletool.py" --help >/dev/null
 "$PYTHON_BIN" -c 'import PIL, ruamel.yaml, yaml, sys; print("  Python",sys.version.split()[0],"+ Pillow + ruamel.yaml + PyYAML OK")'

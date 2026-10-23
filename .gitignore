@@ -1,0 +1,5 @@
+/build/
+/.ngdevkit-examples/
+/.ghostsngoal-upstream/
+/.venv-ngdevkit/
+__pycache__/
