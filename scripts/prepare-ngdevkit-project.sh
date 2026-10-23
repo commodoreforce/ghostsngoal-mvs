@@ -56,6 +56,7 @@ cp config.mk "$TARGET/config.mk"
 cp -R 00-template/assets "$TARGET/assets"
 cp -R 00-template/setup "$TARGET/setup"
 cp "$ROOT/mvs/main.c" "$TARGET/main.c"
+"$PYTHON_BIN" "$ROOT/scripts/patch_main_v5.py" "$TARGET/main.c"
 cp "$ROOT/src/game.c" "$ROOT/src/game.h" "$ROOT/src/levels.c" "$ROOT/src/levels.h" "$ROOT/src/characters.c" "$ROOT/src/characters.h" "$TARGET/src/"
 cp "$ROOT/mvs/Makefile" "$TARGET/Makefile"
 
@@ -64,28 +65,25 @@ echo "Preflight ngdevkit tiletool with pinned Python:"
 "$PYTHON_BIN" -c 'from PIL import Image; import sys; print("  Python", sys.version.split()[0], "+ Pillow OK")'
 echo "  TILETOOL=$PYTHON_BIN $NGDK_TOOLSDIR/tiletool.py"
 
-# Original art packs are intentionally NOT committed to GitHub. Put the two user-owned
-# zip files in reference-packs/ (preferred) or in the repository root.
 ENV_PACK=""
 SPRITE_PACK=""
 for p in "$ROOT/reference-packs/ambientazione.zip" "$ROOT/ambientazione.zip"; do [ -f "$p" ] && ENV_PACK="$p" && break; done
 for p in "$ROOT/reference-packs/sprite.zip" "$ROOT/sprite.zip"; do [ -f "$p" ] && SPRITE_PACK="$p" && break; done
 ASSET_ARGS=()
-if [ -n "$ENV_PACK" ]; then ASSET_ARGS+=(--environment-pack "$ENV_PACK"); echo "Original environment pack: $ENV_PACK"; else echo "WARNING: ambientazione.zip not found; using web runtime backgrounds"; fi
+if [ -n "$ENV_PACK" ]; then ASSET_ARGS+=(--environment-pack "$ENV_PACK"); echo "Original environment pack available: $ENV_PACK"; fi
 if [ -n "$SPRITE_PACK" ]; then ASSET_ARGS+=(--sprite-pack "$SPRITE_PACK"); echo "Original sprite pack: $SPRITE_PACK"; else echo "INFO: sprite.zip not found; actor runtime frames remain active"; fi
 
 echo
-echo "Building Ghosts n Goals PREMIUM opening-zone assets"
-"$PYTHON_BIN" "$ROOT/scripts/build-mvs-visual-assets.py" "$UPSTREAM" "$TARGET" "${ASSET_ARGS[@]}"
+echo "Building Ghosts n Goals PREMIUM OPENING V5"
+"$PYTHON_BIN" "$ROOT/scripts/build_premium_opening_v5.py" "$UPSTREAM" "$TARGET" "${ASSET_ARGS[@]}"
 
 rm -rf "$TARGET/build"
 gmake -C "$TARGET" generate
 
 echo
-printf 'Prepared ngdevkit project at:\n  %s\n' "$TARGET"
+printf 'Prepared ngdevkit V5 project at:\n  %s\n' "$TARGET"
 printf 'Python used by ngdevkit:\n  %s\n' "$PYTHON_BIN"
 printf 'Web reference commit:\n  %s\n' "$UPSTREAM_SHA"
-[ -n "$ENV_PACK" ] && printf 'Environment master pack:\n  %s\n' "$ENV_PACK"
 [ -n "$SPRITE_PACK" ] && printf 'Sprite master pack:\n  %s\n' "$SPRITE_PACK"
 echo
 echo "Build with:"
