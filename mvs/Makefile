@@ -26,14 +26,12 @@ $(PROM1): $(ELF)
 
 $(SROM1): $(BUILDDIR)/assets/base-srom-text-shadow.fix
 
-# Opening-zone C-ROM order MUST match scripts/build-mvs-visual-assets.py exactly.
-# Generated order: SKY -> ATMOS -> CITY -> GROUND -> FG -> PLAYER -> ZOMBIE -> BALL.
+# V4 finite-world C-ROM order. MUST match scripts/build-mvs-visual-assets.py:
+# SKY -> CITY -> GROUND -> FG -> PLAYER -> ZOMBIE -> BALL.
 $(CROM1): $(BUILDDIR)/assets/base-crom-logo.c1
 $(CROM2): $(BUILDDIR)/assets/base-crom-logo.c2
 $(CROM1): $(BUILDDIR)/assets/gng_sky.c1
 $(CROM2): $(BUILDDIR)/assets/gng_sky.c2
-$(CROM1): $(BUILDDIR)/assets/gng_atmos.c1
-$(CROM2): $(BUILDDIR)/assets/gng_atmos.c2
 $(CROM1): $(BUILDDIR)/assets/gng_city.c1
 $(CROM2): $(BUILDDIR)/assets/gng_city.c2
 $(CROM1): $(BUILDDIR)/assets/gng_ground.c1
